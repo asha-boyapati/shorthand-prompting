@@ -1,0 +1,12 @@
+{
+  "name": "glasses-trackpad",
+  "version": "0.1.0",
+  "description": "Prototype: trackpad-style shorthand gestures driving a simulated wearable-AI-glasses display",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

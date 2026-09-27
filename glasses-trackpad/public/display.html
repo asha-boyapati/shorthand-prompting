@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glasses Display</title>
+<style>
+  :root {
+    --hud-glow: #4dd2ff;
+    --gh-bg: #0d1117;
+    --gh-panel: #161b22;
+    --gh-border: #30363d;
+    --gh-text: #e6edf3;
+    --gh-muted: #8b949e;
+    --gh-accent: #2f81f7;
+    --gh-green: #238636;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: radial-gradient(ellipse at center, #10161f 0%, #05080c 75%);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--gh-text);
+  }
+
+  #statusbar {
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gh-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #statusbar .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #f85149;
+    box-shadow: 0 0 6px #f85149;
+  }
+  #statusbar.connected .dot {
+    background: #3fb950;
+    box-shadow: 0 0 6px #3fb950;
+  }
+
+  /* --- HUD viewport (simulated glasses display) --- */
+  #hud {
+    position: relative;
+    width: 600px;
+    height: 600px;
+    border-radius: 28px;
+    border: 2px solid rgba(77, 210, 255, 0.55);
+    box-shadow:
+      0 0 24px rgba(77, 210, 255, 0.35),
+      inset 0 0 32px rgba(77, 210, 255, 0.08);
+    overflow: hidden;
+    background: var(--gh-bg);
+  }
+
+  /* --- Mock GitHub page (scrollable content) --- */
+  #page {
+    position: absolute;
+    inset: 0;
+    will-change: transform;
+    transition: transform 60ms linear;
+  }
+  .gh-header {
+    background: var(--gh-panel);
+    border-bottom: 1px solid var(--gh-border);
+    padding: 12px 18px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 15px;
+  }
+  .gh-header .logo { font-size: 20px; }
+  .gh-header .repo b { color: var(--gh-accent); }
+  .gh-tabs {
+    display: flex; gap: 4px;
+    background: var(--gh-panel);
+    border-bottom: 1px solid var(--gh-border);
+    padding: 0 12px;
+  }
+  .gh-tab {
+    padding: 9px 14px;
+    font-size: 13.5px;
+    color: var(--gh-text);
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    border-radius: 6px 6px 0 0;
+  }
+  .gh-tab.active { border-bottom-color: #f78166; font-weight: 600; }
+  .gh-tab .count {
+    background: rgba(110,118,129,0.4);
+    border-radius: 10px; padding: 1px 7px;
+    font-size: 11px; margin-left: 5px;
+  }
+
+  .gh-toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 18px;
+  }
+  .gh-btn {
+    background: #21262d;
+    border: 1px solid var(--gh-border);
+    color: var(--gh-text);
+    border-radius: 6px;
+    padding: 6px 13px;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .gh-btn.primary { background: var(--gh-green); border-color: rgba(255,255,255,0.1); }
+
+  .gh-files {
+    margin: 0 18px;
+    border: 1px solid var(--gh-border);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 13.5px;
+  }
+  .gh-file {
+    display: flex; justify-content: space-between;
+    padding: 9px 14px;
+    background: var(--gh-bg);
+    border-bottom: 1px solid var(--gh-border);
+    cursor: pointer;
+  }
+  .gh-file:last-child { border-bottom: none; }
+  .gh-file .msg { color: var(--gh-muted); font-size: 12.5px; }
+  .gh-file .icon { margin-right: 8px; }
+
+  .gh-readme {
+    margin: 16px 18px 40px;
+    border: 1px solid var(--gh-border);
+    border-radius: 6px;
+    padding: 18px;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .gh-readme h1 { font-size: 21px; border-bottom: 1px solid var(--gh-border); padding-bottom: 8px; }
+  .gh-readme code {
+    background: rgba(110,118,129,0.25);
+    border-radius: 4px; padding: 1px 5px; font-size: 12.5px;
+  }
+  .gh-readme li { margin: 4px 0; }
+
+  /* hover highlight driven by the virtual cursor */
+  [data-action].hud-hover {
+    outline: 2px solid var(--hud-glow);
+    outline-offset: -2px;
+    background: rgba(77, 210, 255, 0.12) !important;
+  }
+
+  /* --- Virtual cursor --- */
+  #cursor {
+    position: absolute;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    border: 2px solid var(--hud-glow);
+    background: rgba(77, 210, 255, 0.18);
+    box-shadow: 0 0 12px rgba(77, 210, 255, 0.6);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 20;
+    transition: opacity 0.3s;
+  }
+  #cursor::after {
+    content: '';
+    position: absolute; inset: 9px;
+    border-radius: 50%;
+    background: var(--hud-glow);
+  }
+  #cursor.hidden { opacity: 0; }
+
+  /* tap ripple */
+  .ripple {
+    position: absolute;
+    border-radius: 50%;
+    border: 2px solid var(--hud-glow);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 19;
+    animation: ripple 0.45s ease-out forwards;
+  }
+  @keyframes ripple {
+    from { width: 10px; height: 10px; opacity: 1; }
+    to   { width: 90px; height: 90px; opacity: 0; }
+  }
+
+  /* toast */
+  #toast {
+    position: absolute;
+    left: 50%; bottom: 22px;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(13, 17, 23, 0.92);
+    border: 1px solid var(--hud-glow);
+    color: var(--hud-glow);
+    padding: 8px 18px;
+    border-radius: 20px;
+    font-size: 13.5px;
+    opacity: 0;
+    transition: opacity 0.25s, transform 0.25s;
+    z-index: 30;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span></div>
+
+<div id="hud">
+  <div id="page">
+    <div class="gh-header">
+      <span class="logo">&#x1F419;</span>
+      <span class="repo">asha-boyapati / <b>shorthand-prompting</b></span>
+      <span style="margin-left:auto; color: var(--gh-muted); font-size:12px;">Public</span>
+    </div>
+
+    <div class="gh-tabs">
+      <div class="gh-tab active" data-action="Code tab">&lt;&gt; Code</div>
+      <div class="gh-tab" data-action="Issues tab">&#9678; Issues <span class="count">7</span></div>
+      <div class="gh-tab" data-action="Pull requests tab">&#8646; Pull requests <span class="count">2</span></div>
+    </div>
+
+    <div class="gh-toolbar">
+      <button class="gh-btn" data-action="Branch selector">&#9095; main &#9662;</button>
+      <div style="display:flex; gap:8px;">
+        <button class="gh-btn" data-action="Star button" id="starBtn">&#9734; Star <span class="count" id="starCount">128</span></button>
+        <button class="gh-btn primary" data-action="Code download button">Code &#9662;</button>
+      </div>
+    </div>
+
+    <div class="gh-files">
+      <div class="gh-file" data-action="File: glasses-trackpad/"><span><span class="icon">&#128193;</span>glasses-trackpad</span><span class="msg">trackpad gesture prototype</span></div>
+      <div class="gh-file" data-action="File: experiments/"><span><span class="icon">&#128193;</span>experiments</span><span class="msg">shorthand gesture trials</span></div>
+      <div class="gh-file" data-action="File: notes.md"><span><span class="icon">&#128196;</span>notes.md</span><span class="msg">field study observations</span></div>
+      <div class="gh-file" data-action="File: README.md"><span><span class="icon">&#128196;</span>README.md</span><span class="msg">update research summary</span></div>
+    </div>
+
+    <div class="gh-readme">
+      <h1>shorthand-prompting</h1>
+      <p>Research on <strong>trackpad-style shorthand gestures</strong> for wearable AI glasses.
+      Instead of voice or a full keyboard, the wearer uses a small capacitive surface
+      (wristband, ring, or phone) to steer a cursor on the glasses' limited display.</p>
+      <p>Gesture vocabulary under study:</p>
+      <ul>
+        <li><code>one-finger drag</code> &mdash; move cursor</li>
+        <li><code>quick tap</code> &mdash; select / activate</li>
+        <li><code>two-finger drag</code> &mdash; scroll content</li>
+      </ul>
+      <p>This mock GitHub page is the target UI for the pointing study: participants
+      navigate tabs, star the repo, and open files using only the trackpad.</p>
+      <p>Feedback channels: visual (cursor + ripple on the display) and haptic
+      (vibration on the trackpad device, standing in for the glasses' audio cue).</p>
+      <p style="color: var(--gh-muted); font-size: 12.5px;">Scroll down for more&hellip;
+      the page is intentionally taller than the 600&times;600 viewport so two-finger
+      scrolling has something to do. Lorem research ipsum: latency budgets, Fitts's law
+      on tiny displays, dwell-vs-tap selection, and accidental-touch rejection all go here.</p>
+    </div>
+  </div>
+
+  <div id="cursor" class="hidden"></div>
+  <div id="toast"></div>
+</div>
+
+<script>
+(function () {
+  const HUD = 600;
+  const hud = document.getElementById('hud');
+  const page = document.getElementById('page');
+  const cursor = document.getElementById('cursor');
+  const toast = document.getElementById('toast');
+  const statusbar = document.getElementById('statusbar');
+  const statustext = document.getElementById('statustext');
+  const starBtn = document.getElementById('starBtn');
+  let stars = 128;
+
+  let cx = HUD / 2, cy = HUD / 2;   // cursor position within the HUD
+  let scrollY = 0;                   // page offset (translateY)
+  let hovered = null;
+  let toastTimer = null;
+  let starred = false;
+  let ws = null;
+
+  function connect() {
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', role: 'display' }));
+    ws.onclose = () => {
+      setStatus(false, 'server disconnected — retrying…');
+      setTimeout(connect, 1500);
+    };
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      handle(msg);
+    };
+  }
+
+  function setStatus(ok, text) {
+    statusbar.classList.toggle('connected', ok);
+    statustext.textContent = text;
+  }
+
+  function handle(msg) {
+    switch (msg.type) {
+      case 'status': {
+        const n = msg.trackpads | 0;
+        setStatus(n > 0, n > 0 ? `trackpad connected (${n})` : 'waiting for trackpad…');
+        cursor.classList.toggle('hidden', n === 0);
+        break;
+      }
+      case 'move':
+        cx = Math.max(0, Math.min(HUD, cx + (+msg.dx || 0)));
+        cy = Math.max(0, Math.min(HUD, cy + (+msg.dy || 0)));
+        renderCursor();
+        break;
+      case 'scroll':
+        applyScroll(+msg.dy || 0);
+        break;
+      case 'tap':
+        doTap();
+        break;
+    }
+  }
+
+  function renderCursor() {
+    cursor.style.left = cx + 'px';
+    cursor.style.top = cy + 'px';
+    updateHover();
+  }
+
+  function elementUnderCursor() {
+    const rect = hud.getBoundingClientRect();
+    cursor.style.display = 'none'; // don't hit the cursor itself
+    const el = document.elementFromPoint(rect.left + cx, rect.top + cy);
+    cursor.style.display = '';
+    return el ? el.closest('[data-action]') : null;
+  }
+
+  function updateHover() {
+    const el = elementUnderCursor();
+    if (el !== hovered) {
+      if (hovered) hovered.classList.remove('hud-hover');
+      hovered = el;
+      if (hovered) hovered.classList.add('hud-hover');
+    }
+  }
+
+  function applyScroll(dy) {
+    const max = Math.max(0, page.scrollHeight - HUD);
+    scrollY = Math.max(-max, Math.min(0, scrollY - dy));
+    page.style.transform = 'translateY(' + scrollY + 'px)';
+    updateHover();
+  }
+
+  function doTap() {
+    // ripple at cursor position
+    const r = document.createElement('div');
+    r.className = 'ripple';
+    r.style.left = cx + 'px';
+    r.style.top = cy + 'px';
+    hud.appendChild(r);
+    r.addEventListener('animationend', () => r.remove());
+
+    const el = elementUnderCursor();
+    let label = 'nothing selectable';
+    if (el) {
+      label = el.dataset.action;
+      if (el === starBtn || starBtn.contains(el)) {
+        starred = !starred;
+        stars += starred ? 1 : -1;
+        starBtn.innerHTML = (starred ? '&#9733; Starred ' : '&#9734; Star ') +
+          '<span class="count">' + stars + '</span>';
+        label = starred ? 'Starred the repo ⭐' : 'Unstarred the repo';
+      } else if (el.classList.contains('gh-tab')) {
+        document.querySelectorAll('.gh-tab').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+      }
+      el.click();
+    }
+    showToast(el ? 'Selected: ' + label : 'Tap — ' + label);
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'ack', action: label, hit: !!el }));
+    }
+  }
+
+  function showToast(text) {
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  renderCursor();
+  connect();
+})();
+</script>
+</body>
+</html>

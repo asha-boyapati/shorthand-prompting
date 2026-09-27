@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Wrist Trackpad</title>
+<style>
+  :root { --glow: #4dd2ff; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: #05080c;
+    color: #cfe9f5;
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  #topbar {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #7d93a3;
+  }
+  #topbar .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #f85149; box-shadow: 0 0 6px #f85149;
+  }
+  #topbar.connected .dot { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+
+  #pad {
+    flex: 1;
+    margin: 0 12px 12px;
+    border-radius: 22px;
+    border: 1px solid rgba(77, 210, 255, 0.35);
+    background:
+      radial-gradient(circle at 30% 25%, rgba(77,210,255,0.06), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 26px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 26px),
+      #0b1119;
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.6), 0 0 18px rgba(77,210,255,0.12);
+    position: relative;
+    touch-action: none;
+    overflow: hidden;
+  }
+  #padlabel {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: rgba(125,147,163,0.55);
+    font-size: 13px;
+    pointer-events: none;
+    text-align: center;
+    padding: 0 24px;
+  }
+  #padlabel b { color: rgba(77,210,255,0.6); }
+
+  .touchdot {
+    position: absolute;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(77,210,255,0.45) 0%, rgba(77,210,255,0.12) 60%, transparent 70%);
+    border: 1px solid rgba(77,210,255,0.6);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  #banner {
+    position: fixed;
+    top: 12px; left: 50%;
+    transform: translateX(-50%) translateY(-70px);
+    background: rgba(13,17,23,0.95);
+    border: 1px solid var(--glow);
+    color: var(--glow);
+    padding: 9px 20px;
+    border-radius: 22px;
+    font-size: 14px;
+    transition: transform 0.25s;
+    z-index: 10;
+    white-space: nowrap;
+    max-width: 92vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #banner.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="topbar"><span class="dot"></span><span id="statustext">connecting…</span></div>
+
+<div id="pad">
+  <div id="padlabel">
+    <div><b>wrist trackpad</b></div>
+    <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; scroll</div>
+  </div>
+</div>
+
+<div id="banner"></div>
+
+<script>
+(function () {
+  const MOVE_SENS = 1.6;
+  const SCROLL_SENS = 1.4;
+  const TAP_MS = 220;
+  const TAP_SLOP = 12;
+
+  const pad = document.getElementById('pad');
+  const topbar = document.getElementById('topbar');
+  const statustext = document.getElementById('statustext');
+  const banner = document.getElementById('banner');
+
+  let ws = null;
+  let bannerTimer = null;
+
+  function connect() {
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'hello', role: 'trackpad' }));
+      setStatus(false, 'connected — waiting for display…');
+    };
+    ws.onclose = () => {
+      setStatus(false, 'disconnected — retrying…');
+      setTimeout(connect, 1500);
+    };
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.type === 'status') {
+        const n = msg.displays | 0;
+        setStatus(n > 0, n > 0 ? `linked to glasses display (${n})` : 'connected — waiting for display…');
+      } else if (msg.type === 'ack') {
+        showBanner(msg.hit ? '✓ ' + msg.action : '✕ nothing there');
+        vibrate(msg.hit ? [30, 40, 30] : 60);
+      }
+    };
+  }
+
+  function setStatus(ok, text) {
+    topbar.classList.toggle('connected', ok);
+    statustext.textContent = text;
+  }
+
+  function send(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+
+  function vibrate(pattern) {
+    if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch {} }
+  }
+
+  function showBanner(text) {
+    banner.textContent = text;
+    banner.classList.add('show');
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => banner.classList.remove('show'), 1500);
+  }
+
+  // --- touch-point dots ---
+  const dots = new Map(); // pointerId -> element
+  function showDot(id, x, y) {
+    let d = dots.get(id);
+    if (!d) {
+      d = document.createElement('div');
+      d.className = 'touchdot';
+      pad.appendChild(d);
+      dots.set(id, d);
+    }
+    d.style.left = x + 'px';
+    d.style.top = y + 'px';
+  }
+  function hideDot(id) {
+    const d = dots.get(id);
+    if (d) { d.remove(); dots.delete(id); }
+  }
+
+  // --- gesture handling via pointer events (touch + mouse fallback) ---
+  const active = new Map(); // pointerId -> {x, y, startX, startY, startT}
+  let mode = null;          // 'move' | 'scroll'
+
+  function padPos(ev) {
+    const r = pad.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  }
+
+  pad.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    try { pad.setPointerCapture(ev.pointerId); } catch {}
+    const p = padPos(ev);
+    active.set(ev.pointerId, { x: p.x, y: p.y, startX: p.x, startY: p.y, startT: performance.now() });
+    showDot(ev.pointerId, p.x, p.y);
+    mode = active.size >= 2 ? 'scroll' : 'move';
+  });
+
+  pad.addEventListener('pointermove', (ev) => {
+    const st = active.get(ev.pointerId);
+    if (!st) return;
+    const p = padPos(ev);
+    const dx = p.x - st.x;
+    const dy = p.y - st.y;
+    st.x = p.x;
+    st.y = p.y;
+    showDot(ev.pointerId, p.x, p.y);
+
+    if (dx === 0 && dy === 0) return;
+
+    if (mode === 'scroll') {
+      // Two-finger drag: natural scrolling. Use only the first pointer's
+      // movement so the two fingers don't double-count.
+      if (ev.pointerId === firstPointerId()) {
+        send({ type: 'scroll', dy: -dy * SCROLL_SENS });
+      }
+    } else {
+      send({ type: 'move', dx: dx * MOVE_SENS, dy: dy * MOVE_SENS });
+    }
+  });
+
+  function firstPointerId() {
+    return active.keys().next().value;
+  }
+
+  function endPointer(ev) {
+    const st = active.get(ev.pointerId);
+    if (!st) return;
+    active.delete(ev.pointerId);
+    hideDot(ev.pointerId);
+
+    if (mode === 'move' && active.size === 0) {
+      const dt = performance.now() - st.startT;
+      const dist = Math.hypot(st.x - st.startX, st.y - st.startY);
+      if (dt < TAP_MS && dist < TAP_SLOP) {
+        send({ type: 'tap' });
+        vibrate(15);
+      }
+    }
+    if (active.size === 0) mode = null;
+  }
+
+  pad.addEventListener('pointerup', endPointer);
+  pad.addEventListener('pointercancel', endPointer);
+
+  connect();
+})();
+</script>
+</body>
+</html>
