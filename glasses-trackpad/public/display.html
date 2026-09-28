@@ -51,8 +51,8 @@
   /* --- HUD viewport (simulated glasses display) --- */
   #hud {
     position: relative;
-    width: 600px;
-    height: 600px;
+    width: 480px;
+    height: 400px;
     border-radius: 28px;
     border: 2px solid rgba(77, 210, 255, 0.55);
     box-shadow:
@@ -65,7 +65,8 @@
   /* --- Mock GitHub page (scrollable content) --- */
   #page {
     position: absolute;
-    inset: 0;
+    top: 0; left: 0;
+    width: 720px; /* wider than the viewport so horizontal panning matters */
     will-change: transform;
     transition: transform 60ms linear;
   }
@@ -259,10 +260,11 @@
       navigate tabs, star the repo, and open files using only the trackpad.</p>
       <p>Feedback channels: visual (cursor + ripple on the display) and haptic
       (vibration on the trackpad device, standing in for the glasses' audio cue).</p>
-      <p style="color: var(--gh-muted); font-size: 12.5px;">Scroll down for more&hellip;
-      the page is intentionally taller than the 600&times;600 viewport so two-finger
-      scrolling has something to do. Lorem research ipsum: latency budgets, Fitts's law
-      on tiny displays, dwell-vs-tap selection, and accidental-touch rejection all go here.</p>
+      <p style="color: var(--gh-muted); font-size: 12.5px;">Scroll around&hellip;
+      the page is intentionally bigger than the small HUD viewport (both taller and
+      wider) so two-finger panning has something to do in every direction. Lorem
+      research ipsum: latency budgets, Fitts's law on tiny displays, dwell-vs-tap
+      selection, and accidental-touch rejection all go here.</p>
     </div>
   </div>
 
@@ -272,7 +274,7 @@
 
 <script>
 (function () {
-  const HUD = 600;
+  const W = 480, H = 400; // HUD viewport ("camera") size
   const hud = document.getElementById('hud');
   const page = document.getElementById('page');
   const cursor = document.getElementById('cursor');
@@ -282,8 +284,8 @@
   const starBtn = document.getElementById('starBtn');
   let stars = 128;
 
-  let cx = HUD / 2, cy = HUD / 2;   // cursor position within the HUD
-  let scrollY = 0;                   // page offset (translateY)
+  let cx = W / 2, cy = H / 2;       // cursor position within the HUD
+  let scrollX = 0, scrollY = 0;      // page pan offset (translate)
   let hovered = null;
   let toastTimer = null;
   let starred = false;
@@ -317,12 +319,12 @@
         break;
       }
       case 'move':
-        cx = Math.max(0, Math.min(HUD, cx + (+msg.dx || 0)));
-        cy = Math.max(0, Math.min(HUD, cy + (+msg.dy || 0)));
+        cx = Math.max(0, Math.min(W, cx + (+msg.dx || 0)));
+        cy = Math.max(0, Math.min(H, cy + (+msg.dy || 0)));
         renderCursor();
         break;
       case 'scroll':
-        applyScroll(+msg.dy || 0);
+        applyScroll(+msg.dx || 0, +msg.dy || 0);
         break;
       case 'tap':
         doTap();
@@ -353,10 +355,12 @@
     }
   }
 
-  function applyScroll(dy) {
-    const max = Math.max(0, page.scrollHeight - HUD);
-    scrollY = Math.max(-max, Math.min(0, scrollY - dy));
-    page.style.transform = 'translateY(' + scrollY + 'px)';
+  function applyScroll(dx, dy) {
+    const maxX = Math.max(0, page.offsetWidth - W);
+    const maxY = Math.max(0, page.scrollHeight - H);
+    scrollX = Math.max(-maxX, Math.min(0, scrollX - dx));
+    scrollY = Math.max(-maxY, Math.min(0, scrollY - dy));
+    page.style.transform = 'translate(' + scrollX + 'px,' + scrollY + 'px)';
     updateHover();
   }
 

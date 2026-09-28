@@ -104,7 +104,7 @@
 <div id="pad">
   <div id="padlabel">
     <div><b>wrist trackpad</b></div>
-    <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; scroll</div>
+    <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; pan / scroll</div>
   </div>
 </div>
 
@@ -220,7 +220,7 @@
       // Two-finger drag: natural scrolling. Use only the first pointer's
       // movement so the two fingers don't double-count.
       if (ev.pointerId === firstPointerId()) {
-        send({ type: 'scroll', dy: -dy * SCROLL_SENS });
+        send({ type: 'scroll', dx: -dx * SCROLL_SENS, dy: -dy * SCROLL_SENS });
       }
     } else {
       send({ type: 'move', dx: dx * MOVE_SENS, dy: dy * MOVE_SENS });
