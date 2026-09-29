@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glasses Quiz</title>
+<style>
+  :root {
+    --hud-glow: #4dd2ff;
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --red: #f85149;
+    --amber: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: radial-gradient(ellipse at center, #10161f 0%, #05080c 75%);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--text);
+  }
+
+  #statusbar {
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex; align-items: center; gap: 8px;
+  }
+  #statusbar .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--red); box-shadow: 0 0 6px var(--red);
+  }
+  #statusbar.connected .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  #hud {
+    position: relative;
+    width: 480px;
+    height: 400px;
+    border-radius: 28px;
+    border: 2px solid rgba(77, 210, 255, 0.55);
+    box-shadow:
+      0 0 24px rgba(77, 210, 255, 0.35),
+      inset 0 0 32px rgba(77, 210, 255, 0.08);
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  #card {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 26px;
+  }
+
+  .quiz-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .chip {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 3px 12px;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+  }
+  .chip.add  { color: var(--green); border-color: rgba(63,185,80,0.5); }
+  .chip.mult { color: var(--amber); border-color: rgba(210,153,34,0.5); }
+
+  #qarea {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    text-align: center;
+  }
+  #question { font-size: 38px; font-weight: 600; letter-spacing: 0.02em; }
+  #answer {
+    font-size: 46px;
+    font-weight: 700;
+    color: var(--hud-glow);
+    text-shadow: 0 0 16px rgba(77,210,255,0.5);
+    min-height: 56px;
+  }
+  #answer.hidden { visibility: hidden; }
+
+  #hint {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  #buttons {
+    display: flex; justify-content: center; gap: 18px;
+    padding-bottom: 6px;
+  }
+  .pill {
+    border-radius: 22px;
+    border: 1px solid var(--border);
+    background: #21262d;
+    color: var(--text);
+    font-size: 15px;
+    padding: 10px 26px;
+    cursor: pointer;
+  }
+  .pill.good { border-color: rgba(63,185,80,0.6); color: var(--green); }
+  .pill.bad  { border-color: rgba(248,81,73,0.6); color: var(--red); }
+
+  /* end screen */
+  .score-line { font-size: 22px; }
+  .score-line .g { color: var(--green); }
+  .score-line .m { color: var(--red); }
+  .score-line .s { color: var(--amber); }
+
+  [data-action].hud-hover {
+    outline: 2px solid var(--hud-glow);
+    outline-offset: -2px;
+    background: rgba(77, 210, 255, 0.12) !important;
+  }
+
+  #cursor {
+    position: absolute;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    border: 2px solid var(--hud-glow);
+    background: rgba(77, 210, 255, 0.18);
+    box-shadow: 0 0 12px rgba(77, 210, 255, 0.6);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 20;
+    transition: opacity 0.3s;
+  }
+  #cursor::after {
+    content: '';
+    position: absolute; inset: 9px;
+    border-radius: 50%;
+    background: var(--hud-glow);
+  }
+  #cursor.hidden { opacity: 0; }
+
+  .ripple {
+    position: absolute;
+    border-radius: 50%;
+    border: 2px solid var(--hud-glow);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 19;
+    animation: ripple 0.45s ease-out forwards;
+  }
+  @keyframes ripple {
+    from { width: 10px; height: 10px; opacity: 1; }
+    to   { width: 90px; height: 90px; opacity: 0; }
+  }
+
+  /* swipe flash feedback */
+  #flash {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 18;
+  }
+  #flash.right { background: linear-gradient(90deg, transparent 40%, rgba(63,185,80,0.25)); }
+  #flash.left  { background: linear-gradient(270deg, transparent 40%, rgba(248,81,73,0.25)); }
+  #flash.show { animation: flash 0.4s ease-out; }
+  @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+
+  #toast {
+    position: absolute;
+    left: 50%; bottom: 16px;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(13, 17, 23, 0.92);
+    border: 1px solid var(--hud-glow);
+    color: var(--hud-glow);
+    padding: 7px 16px;
+    border-radius: 18px;
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.25s, transform 0.25s;
+    z-index: 30;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span></div>
+
+<div id="hud">
+  <div id="card"></div>
+  <div id="flash"></div>
+  <div id="cursor" class="hidden"></div>
+  <div id="toast"></div>
+</div>
+
+<script>
+(function () {
+  const W = 480, H = 400;
+  const hud = document.getElementById('hud');
+  const card = document.getElementById('card');
+  const cursor = document.getElementById('cursor');
+  const toast = document.getElementById('toast');
+  const flash = document.getElementById('flash');
+  const statusbar = document.getElementById('statusbar');
+  const statustext = document.getElementById('statustext');
+
+  let cx = W / 2, cy = H / 2;
+  let hovered = null;
+  let toastTimer = null;
+  let ws = null;
+
+  // --- quiz state ---
+  let queue = [];      // question objects; missed ones are re-appended
+  let pos = 0;
+  let revealed = false;
+  let finished = false;
+  let got = 0, missed = 0, skipped = 0;
+
+  function makeQuestions() {
+    const qs = [];
+    const ri = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
+    for (let i = 0; i < 10; i++) {
+      const a = ri(10, 99), b = ri(10, 99);
+      qs.push({ topic: 'Addition', text: a + ' + ' + b + ' = ?', answer: a + b });
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = ri(2, 12), b = ri(2, 12);
+      qs.push({ topic: 'Multiplication', text: a + ' × ' + b + ' = ?', answer: a * b });
+    }
+    for (let i = qs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [qs[i], qs[j]] = [qs[j], qs[i]];
+    }
+    return qs;
+  }
+
+  function restart() {
+    queue = makeQuestions();
+    pos = 0;
+    revealed = false;
+    finished = false;
+    got = 0; missed = 0; skipped = 0;
+    render();
+  }
+
+  function current() { return queue[pos]; }
+
+  function render() {
+    if (finished) {
+      card.innerHTML =
+        '<div class="quiz-head"><span>QUIZ · done</span><span class="chip">Results</span></div>' +
+        '<div id="qarea">' +
+          '<div style="font-size:15px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;">Session complete</div>' +
+          '<div class="score-line"><span class="g">' + got + ' got it</span> · ' +
+            '<span class="m">' + missed + ' missed</span> · ' +
+            '<span class="s">' + skipped + ' skipped</span></div>' +
+          '<div id="hint">tap Restart to run it again</div>' +
+        '</div>' +
+        '<div id="buttons"><button class="pill" data-action="Restart">Restart</button></div>';
+      return;
+    }
+    const q = current();
+    const topicClass = q.topic === 'Addition' ? 'add' : 'mult';
+    const btns = revealed
+      ? '<button class="pill good" data-action="Got it">Got it</button>' +
+        '<button class="pill bad" data-action="Missed it">Missed it</button>'
+      : '<button class="pill" data-action="Reveal answer">Reveal answer</button>' +
+        '<button class="pill" data-action="Skip">Skip</button>';
+    card.innerHTML =
+      '<div class="quiz-head"><span>QUIZ · ' + (pos + 1) + '/' + queue.length + '</span>' +
+        '<span class="chip ' + topicClass + '">' + q.topic + '</span></div>' +
+      '<div id="qarea">' +
+        '<div id="question">' + q.text + '</div>' +
+        '<div id="answer" class="' + (revealed ? '' : 'hidden') + '">' + q.answer + '</div>' +
+        '<div id="hint">swipe right = got it · swipe left = missed it</div>' +
+      '</div>' +
+      '<div id="buttons">' + btns + '</div>';
+    updateHover();
+  }
+
+  function advance() {
+    revealed = false;
+    pos++;
+    if (pos >= queue.length) finished = true;
+    render();
+  }
+
+  function doAction(label) {
+    switch (label) {
+      case 'Reveal answer':
+        revealed = true;
+        render();
+        break;
+      case 'Skip':
+        skipped++;
+        advance();
+        break;
+      case 'Got it':
+        got++;
+        advance();
+        break;
+      case 'Missed it':
+        missed++;
+        queue.push(current()); // requeue at the back
+        advance();
+        break;
+      case 'Restart':
+        restart();
+        break;
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  // --- WS + input handling ---
+  function connect() {
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', role: 'display' }));
+    ws.onclose = () => {
+      setStatus(false, 'server disconnected — retrying…');
+      setTimeout(connect, 1500);
+    };
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      handle(msg);
+    };
+  }
+
+  function setStatus(ok, text) {
+    statusbar.classList.toggle('connected', ok);
+    statustext.textContent = text;
+  }
+
+  function sendAck(action, hit) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'ack', action: action, hit: hit }));
+    }
+  }
+
+  function handle(msg) {
+    switch (msg.type) {
+      case 'status': {
+        const n = msg.trackpads | 0;
+        setStatus(n > 0, n > 0 ? 'trackpad connected (' + n + ')' : 'waiting for trackpad…');
+        cursor.classList.toggle('hidden', n === 0);
+        break;
+      }
+      case 'move':
+        cx = Math.max(0, Math.min(W, cx + (+msg.dx || 0)));
+        cy = Math.max(0, Math.min(H, cy + (+msg.dy || 0)));
+        renderCursor();
+        break;
+      case 'tap':
+        doTap();
+        break;
+      case 'swipe':
+        doSwipe(msg.dir);
+        break;
+      // 'scroll' ignored: the quiz card fits the viewport
+    }
+  }
+
+  function renderCursor() {
+    cursor.style.left = cx + 'px';
+    cursor.style.top = cy + 'px';
+    updateHover();
+  }
+
+  function elementUnderCursor() {
+    const rect = hud.getBoundingClientRect();
+    cursor.style.display = 'none';
+    const el = document.elementFromPoint(rect.left + cx, rect.top + cy);
+    cursor.style.display = '';
+    return el ? el.closest('[data-action]') : null;
+  }
+
+  function updateHover() {
+    const el = elementUnderCursor();
+    if (el !== hovered) {
+      if (hovered && hovered.isConnected) hovered.classList.remove('hud-hover');
+      hovered = el;
+      if (hovered) hovered.classList.add('hud-hover');
+    }
+  }
+
+  function doTap() {
+    const r = document.createElement('div');
+    r.className = 'ripple';
+    r.style.left = cx + 'px';
+    r.style.top = cy + 'px';
+    hud.appendChild(r);
+    r.addEventListener('animationend', () => r.remove());
+
+    const el = elementUnderCursor();
+    if (el) {
+      const label = el.dataset.action;
+      doAction(label);
+      showToast(label);
+      sendAck(label, true);
+    } else {
+      showToast('nothing selectable');
+      sendAck('nothing selectable', false);
+    }
+  }
+
+  function doSwipe(dir) {
+    if (finished) { sendAck('quiz finished — tap Restart', false); return; }
+    flash.className = dir === 'right' ? 'right show' : 'left show';
+    setTimeout(() => { flash.className = ''; }, 450);
+    const label = dir === 'right' ? 'Got it' : 'Missed it';
+    doAction(label);
+    showToast(label + (dir === 'left' ? ' — will come back later' : ''));
+    sendAck(label, true);
+  }
+
+  function showToast(text) {
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  restart();
+  renderCursor();
+  connect();
+})();
+</script>
+</body>
+</html>

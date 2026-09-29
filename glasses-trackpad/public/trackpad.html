@@ -105,6 +105,7 @@
   <div id="padlabel">
     <div><b>wrist trackpad</b></div>
     <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; pan / scroll</div>
+    <div>quiz: flick right &mdash; got it &nbsp;&middot;&nbsp; flick left &mdash; missed it</div>
   </div>
 </div>
 
@@ -116,6 +117,9 @@
   const SCROLL_SENS = 1.4;
   const TAP_MS = 220;
   const TAP_SLOP = 12;
+  const SWIPE_MS = 200;     // flick must be released quickly
+  const SWIPE_DIST = 60;    // px of horizontal travel
+  const SWIPE_SPEED = 600;  // px/s
 
   const pad = document.getElementById('pad');
   const topbar = document.getElementById('topbar');
@@ -239,8 +243,16 @@
 
     if (mode === 'move' && active.size === 0) {
       const dt = performance.now() - st.startT;
-      const dist = Math.hypot(st.x - st.startX, st.y - st.startY);
-      if (dt < TAP_MS && dist < TAP_SLOP) {
+      const dx = st.x - st.startX;
+      const dy = st.y - st.startY;
+      const dist = Math.hypot(dx, dy);
+      const speed = dist / Math.max(dt, 1) * 1000; // px/s
+      if (dt < SWIPE_MS && Math.abs(dx) > SWIPE_DIST &&
+          Math.abs(dx) > Math.abs(dy) * 1.5 && speed > SWIPE_SPEED) {
+        // fast mostly-horizontal flick -> swipe, not a tap/move tail
+        send({ type: 'swipe', dir: dx > 0 ? 'right' : 'left' });
+        vibrate(25);
+      } else if (dt < TAP_MS && dist < TAP_SLOP) {
         send({ type: 'tap' });
         vibrate(15);
       }

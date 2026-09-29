@@ -14,6 +14,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const ROUTES = {
   '/display': 'display.html',
   '/trackpad': 'trackpad.html',
+  '/quiz': 'quiz.html',
 };
 
 const server = http.createServer((req, res) => {
@@ -28,7 +29,7 @@ const server = http.createServer((req, res) => {
   const file = ROUTES[url];
   if (!file) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not found. Try /display or /trackpad');
+    res.end('Not found. Try /display, /quiz or /trackpad');
     return;
   }
 
@@ -130,6 +131,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('  glasses-trackpad prototype');
   console.log('  ==========================');
   console.log(`  Glasses display (laptop):  http://localhost:${PORT}/display`);
+  console.log(`  Quiz mode (laptop):        http://localhost:${PORT}/quiz`);
   console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad`);
   console.log('');
 });
