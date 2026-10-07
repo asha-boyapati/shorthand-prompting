@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glasses Assistant</title>
+<style>
+  :root {
+    --hud-glow: #4dd2ff;
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --red: #f85149;
+    --amber: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: radial-gradient(ellipse at center, #10161f 0%, #05080c 75%);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--text);
+  }
+
+  #statusbar {
+    font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); display: flex; align-items: center; gap: 8px;
+  }
+  #statusbar .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--red); box-shadow: 0 0 6px var(--red);
+  }
+  #statusbar.connected .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  #hud {
+    position: relative;
+    width: 480px; height: 400px;
+    border-radius: 28px;
+    border: 2px solid rgba(77, 210, 255, 0.55);
+    box-shadow: 0 0 24px rgba(77, 210, 255, 0.35), inset 0 0 32px rgba(77, 210, 255, 0.08);
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  #card { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 18px 22px; }
+
+  .head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .chip {
+    border: 1px solid var(--border); border-radius: 14px;
+    padding: 3px 12px; font-size: 11.5px; letter-spacing: 0.05em;
+  }
+  .chip.add  { color: var(--green); border-color: rgba(63,185,80,0.5); }
+  .chip.mult { color: var(--amber); border-color: rgba(210,153,34,0.5); }
+  .chip.task { color: var(--hud-glow); border-color: rgba(77,210,255,0.5); }
+
+  .body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .scrollable { flex: 1; overflow: hidden; }
+
+  /* home prompt list */
+  .prompt {
+    display: flex; align-items: center; gap: 9px;
+    border: 1px solid var(--border); border-radius: 16px;
+    background: #171e28;
+    padding: 6px 13px; margin: 3px 0;
+    font-size: 13px; cursor: pointer;
+  }
+  .prompt .mic { color: var(--hud-glow); font-size: 11px; }
+  .prompt.soon { color: var(--muted); }
+  .prompt.soon .mic { color: var(--border); }
+
+  .pillrow { display: flex; justify-content: center; gap: 14px; padding-top: 8px; }
+  .pill {
+    border-radius: 22px; border: 1px solid var(--border);
+    background: #21262d; color: var(--text);
+    font-size: 14px; padding: 9px 22px; cursor: pointer;
+  }
+  .pill.small { font-size: 12px; padding: 6px 14px; }
+  .pill.good { border-color: rgba(63,185,80,0.6); color: var(--green); }
+  .pill.bad  { border-color: rgba(248,81,73,0.6); color: var(--red); }
+
+  .bigq { font-size: 34px; font-weight: 600; text-align: center; }
+  .biganswer {
+    font-size: 42px; font-weight: 700; text-align: center;
+    color: var(--hud-glow); text-shadow: 0 0 16px rgba(77,210,255,0.5); min-height: 50px;
+  }
+  .biganswer.hidden { visibility: hidden; }
+  .hint { font-size: 11.5px; color: var(--muted); text-align: center; }
+  .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+
+  /* cooking */
+  .ing {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--border); border-radius: 14px;
+    padding: 6px 12px; margin: 3px 0; font-size: 13.5px; cursor: pointer;
+    background: #171e28;
+  }
+  .ing .box {
+    width: 16px; height: 16px; border-radius: 4px;
+    border: 1.5px solid var(--muted); flex: none;
+    display: flex; align-items: center; justify-content: center; font-size: 12px;
+  }
+  .ing.checked { border-color: rgba(63,185,80,0.5); }
+  .ing.checked .box { border-color: var(--green); color: var(--green); }
+  .steptext { font-size: 23px; font-weight: 600; text-align: center; line-height: 1.35; }
+  .timerchip {
+    font-size: 26px; font-weight: 700; color: var(--amber);
+    border: 1px solid rgba(210,153,34,0.5); border-radius: 14px; padding: 4px 18px;
+  }
+  .timerchip.running { color: var(--hud-glow); border-color: rgba(77,210,255,0.5); }
+
+  /* ideation */
+  .idea-title { font-size: 26px; font-weight: 700; text-align: center; }
+  .idea-tag { font-size: 14px; color: var(--muted); text-align: center; }
+  .tags { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+  .tags .chip { font-size: 10.5px; padding: 2px 9px; }
+  .details { font-size: 12.5px; color: var(--text); margin: 4px 0 0; padding-left: 18px; }
+  .details li { margin: 2px 0; }
+  .shortlist { font-size: 15px; line-height: 1.7; text-align: center; }
+  .score-line { font-size: 20px; text-align: center; }
+  .score-line .g { color: var(--green); }
+  .score-line .m { color: var(--red); }
+  .score-line .s { color: var(--amber); }
+
+  [data-action].hud-hover {
+    outline: 2px solid var(--hud-glow);
+    outline-offset: -2px;
+    background: rgba(77, 210, 255, 0.12) !important;
+  }
+  [data-action].circled {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+    background: rgba(210, 153, 34, 0.15) !important;
+  }
+
+  #ink {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    z-index: 15;
+    transition: opacity 0.6s;
+  }
+  #ink.fade { opacity: 0; }
+
+  #cursor {
+    position: absolute; width: 26px; height: 26px; border-radius: 50%;
+    border: 2px solid var(--hud-glow); background: rgba(77, 210, 255, 0.18);
+    box-shadow: 0 0 12px rgba(77, 210, 255, 0.6);
+    transform: translate(-50%, -50%);
+    pointer-events: none; z-index: 20; transition: opacity 0.3s;
+  }
+  #cursor::after { content: ''; position: absolute; inset: 9px; border-radius: 50%; background: var(--hud-glow); }
+  #cursor.hidden { opacity: 0; }
+  #cursor.pen { border-radius: 4px; }
+  #cursor.pen::after { border-radius: 2px; }
+
+  .ripple {
+    position: absolute; border-radius: 50%;
+    border: 2px solid var(--hud-glow);
+    transform: translate(-50%, -50%);
+    pointer-events: none; z-index: 19;
+    animation: ripple 0.45s ease-out forwards;
+  }
+  @keyframes ripple {
+    from { width: 10px; height: 10px; opacity: 1; }
+    to   { width: 90px; height: 90px; opacity: 0; }
+  }
+
+  #flash {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 18;
+  }
+  #flash.right { background: linear-gradient(90deg, transparent 40%, rgba(63,185,80,0.25)); }
+  #flash.left  { background: linear-gradient(270deg, transparent 40%, rgba(248,81,73,0.25)); }
+  #flash.show { animation: flash 0.4s ease-out; }
+  @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+
+  #toast {
+    position: absolute; left: 50%; bottom: 14px;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(13, 17, 23, 0.92);
+    border: 1px solid var(--hud-glow); color: var(--hud-glow);
+    padding: 7px 16px; border-radius: 18px; font-size: 13px;
+    opacity: 0; transition: opacity 0.25s, transform 0.25s;
+    z-index: 30; pointer-events: none;
+    white-space: nowrap; max-width: 440px; overflow: hidden; text-overflow: ellipsis;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span></div>
+
+<div id="hud">
+  <div id="card"></div>
+  <canvas id="ink" width="480" height="400"></canvas>
+  <div id="flash"></div>
+  <div id="cursor" class="hidden"></div>
+  <div id="toast"></div>
+</div>
+
+<script>
+(function () {
+  const W = 480, H = 400;
+  const hud = document.getElementById('hud');
+  const card = document.getElementById('card');
+  const ink = document.getElementById('ink');
+  const inkCtx = ink.getContext('2d');
+  const cursor = document.getElementById('cursor');
+  const toast = document.getElementById('toast');
+  const flash = document.getElementById('flash');
+  const statusbar = document.getElementById('statusbar');
+  const statustext = document.getElementById('statustext');
+
+  let cx = W / 2, cy = H / 2;
+  let hovered = null;
+  let toastTimer = null;
+  let ws = null;
+
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+  // ====================== prompt catalog ======================
+  const PROMPTS = [
+    { id: 'quiz',      text: 'Quiz me on addition and multiplication', ready: true },
+    { id: 'cook',      text: 'Help me cook pasta carbonara',           ready: true },
+    { id: 'ideate',    text: 'Help me brainstorm hackathon project ideas', ready: true },
+    { id: 'workout',   text: 'Walk me through a quick morning workout' },
+    { id: 'translate', text: 'Translate what I’m looking at to Spanish' },
+    { id: 'messages',  text: 'Summarize my unread messages' },
+    { id: 'navigate',  text: 'Navigate me to the nearest coffee shop' },
+    { id: 'debug',     text: 'Help me debug my code' },
+    { id: 'calendar',  text: 'What’s on my calendar today?' },
+    { id: 'guitar',    text: 'Teach me basic guitar chords' },
+  ];
+
+  // ====================== app state ======================
+  let screen = 'home';     // home | quiz | cook | ideate | soon
+  let soonPrompt = null;   // which unbuilt prompt was opened
+
+  // --- quiz state ---
+  const qz = {};
+  function quizReset() {
+    const qs = [];
+    const ri = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
+    for (let i = 0; i < 10; i++) {
+      const a = ri(10, 99), b = ri(10, 99);
+      qs.push({ topic: 'Addition', cls: 'add', text: a + ' + ' + b + ' = ?', answer: a + b });
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = ri(2, 12), b = ri(2, 12);
+      qs.push({ topic: 'Multiplication', cls: 'mult', text: a + ' × ' + b + ' = ?', answer: a * b });
+    }
+    for (let i = qs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [qs[i], qs[j]] = [qs[j], qs[i]];
+    }
+    Object.assign(qz, { queue: qs, pos: 0, revealed: false, finished: false, got: 0, missed: 0, skipped: 0 });
+  }
+
+  // --- cooking state ---
+  const INGREDIENTS = ['Spaghetti (400 g)', 'Eggs (4 yolks)', 'Pecorino Romano (80 g)',
+                       'Guanciale or bacon (150 g)', 'Black pepper', 'Salt'];
+  const STEPS = [
+    { text: 'Bring a large pot of salted water to a boil' },
+    { text: 'Cook the spaghetti until al dente', timer: 10 },
+    { text: 'Meanwhile: crisp the guanciale in a dry pan', timer: 5 },
+    { text: 'Whisk egg yolks with pecorino and lots of black pepper' },
+    { text: 'Drain pasta — keep a cup of the starchy water!' },
+    { text: 'Off the heat: toss pasta with guanciale, then fold in the egg mix' },
+    { text: 'Loosen with pasta water until silky. Plate + more cheese' },
+  ];
+  const ck = {};
+  function cookReset() {
+    Object.assign(ck, { phase: 'ingredients', checked: INGREDIENTS.map(() => false), step: 0,
+                        timer: null, remaining: 0, timersDone: 0 });
+  }
+  function stopTimer() {
+    if (ck.timer) { clearInterval(ck.timer); ck.timer = null; }
+  }
+
+  // --- ideation state ---
+  const IDEAS = [
+    { title: 'GestureChef', tag: 'Hands-free recipe navigation on smart glasses', tags: ['wearables', 'CV'],
+      details: ['Steps pinned in your view while you cook', 'Flick wrist to advance, circle an ingredient to substitute', 'Judges love a live demo you can taste'] },
+    { title: 'SignBridge', tag: 'Real-time sign-language captions for meetings', tags: ['accessibility', 'ML'],
+      details: ['Webcam → pose model → captions in the call', 'Start with 50 common signs', 'Huge accessibility impact story'] },
+    { title: 'StudyLens', tag: 'Point at a textbook page, get flashcards', tags: ['education', 'OCR'],
+      details: ['OCR + LLM generates spaced-repetition cards', 'Quiz mode on the glasses display', 'Pairs with the trackpad prototype!'] },
+    { title: 'CrowdSync', tag: 'Find your friends at a festival with AR arrows', tags: ['AR', 'geo'],
+      details: ['Offline-first mesh of phone locations', 'Arrow overlay + haptic hot/cold', 'Works when cell networks are jammed'] },
+    { title: 'EcoCart', tag: 'Scan groceries, see carbon footprint instantly', tags: ['climate', 'CV'],
+      details: ['Barcode → footprint database lookup', 'Weekly report + swap suggestions', 'Easy to demo with real products'] },
+    { title: 'NapMap', tag: 'Crowd-sourced quiet spots on campus', tags: ['social', 'sensors'],
+      details: ['Phones sample ambient noise (opt-in)', 'Heatmap of nap-worthy spots', 'Silly, memorable, actually useful'] },
+    { title: 'PitchCoach', tag: 'AR teleprompter that scores your delivery', tags: ['AR', 'speech'],
+      details: ['Script scrolls in your glasses', 'Live pace/filler-word feedback', 'Demo: pitch the judges with it on'] },
+    { title: 'MemLane', tag: 'Whisper-quiet name reminders at networking events', tags: ['wearables', 'privacy'],
+      details: ['Face match against people you’ve met (on-device)', 'Name + context appears in HUD', 'Big privacy discussion built in'] },
+  ];
+  const id8 = {};
+  function ideateReset() {
+    Object.assign(id8, { pos: 0, expanded: false, kept: [], dropped: [], finished: false });
+  }
+
+  quizReset(); cookReset(); ideateReset();
+
+  // ====================== rendering ======================
+  function homeBtn() {
+    return '<button class="pill small" data-action="Home" data-cmd="home">⌂ Home</button>';
+  }
+
+  function render() {
+    stopTimerIfLeftCook();
+    if (screen === 'home') renderHome();
+    else if (screen === 'quiz') renderQuiz();
+    else if (screen === 'cook') renderCook();
+    else if (screen === 'ideate') renderIdeate();
+    else renderSoon();
+    updateHover();
+  }
+
+  function stopTimerIfLeftCook() {
+    if (screen !== 'cook') stopTimer();
+  }
+
+  function renderHome() {
+    const rows = PROMPTS.map((p) =>
+      '<div class="prompt' + (p.ready ? '' : ' soon') + '" data-action="' + esc(p.text) + '"' +
+      ' data-cmd="open:' + p.id + '"><span class="mic">●</span>' + esc(p.text) +
+      (p.ready ? '' : ' <span style="margin-left:auto;font-size:10px;color:var(--border);">soon</span>') +
+      '</div>').join('');
+    card.innerHTML =
+      '<div class="head"><span>ASSISTANT · what do you want to do?</span><span class="chip task">10 prompts</span></div>' +
+      '<div class="scrollable" id="scrollable">' + rows + '</div>' +
+      '<div class="hint" style="padding-top:6px;">tap a prompt · or circle one in draw mode</div>';
+  }
+
+  function renderQuiz() {
+    if (qz.finished) {
+      card.innerHTML =
+        '<div class="head"><span>QUIZ · done</span><span class="chip">Results</span></div>' +
+        '<div class="center">' +
+          '<div class="score-line"><span class="g">' + qz.got + ' got it</span> · ' +
+          '<span class="m">' + qz.missed + ' missed</span> · ' +
+          '<span class="s">' + qz.skipped + ' skipped</span></div>' +
+        '</div>' +
+        '<div class="pillrow"><button class="pill" data-action="Restart quiz" data-cmd="quiz:restart">Restart</button>' + homeBtn() + '</div>';
+      return;
+    }
+    const q = qz.queue[qz.pos];
+    const btns = qz.revealed
+      ? '<button class="pill good" data-action="Got it" data-cmd="quiz:got">Got it</button>' +
+        '<button class="pill bad" data-action="Missed it" data-cmd="quiz:miss">Missed it</button>'
+      : '<button class="pill" data-action="Reveal answer" data-cmd="quiz:reveal">Reveal answer</button>' +
+        '<button class="pill" data-action="Skip" data-cmd="quiz:skip">Skip</button>';
+    card.innerHTML =
+      '<div class="head"><span>QUIZ · ' + (qz.pos + 1) + '/' + qz.queue.length + '</span>' +
+        '<span class="chip ' + q.cls + '">' + q.topic + '</span></div>' +
+      '<div class="center">' +
+        '<div class="bigq">' + q.text + '</div>' +
+        '<div class="biganswer ' + (qz.revealed ? '' : 'hidden') + '">' + q.answer + '</div>' +
+        '<div class="hint">swipe right = got it · swipe left = missed it</div>' +
+      '</div>' +
+      '<div class="pillrow">' + btns + homeBtn() + '</div>';
+  }
+
+  function renderCook() {
+    if (ck.phase === 'ingredients') {
+      const rows = INGREDIENTS.map((ing, i) =>
+        '<div class="ing' + (ck.checked[i] ? ' checked' : '') + '" data-action="' + esc(ing) + '"' +
+        ' data-cmd="cook:ing:' + i + '" data-multi="1"><span class="box">' +
+        (ck.checked[i] ? '✓' : '') + '</span>' + esc(ing) + '</div>').join('');
+      card.innerHTML =
+        '<div class="head"><span>COOKING · carbonara</span><span class="chip task">Ingredients</span></div>' +
+        '<div class="scrollable" id="scrollable">' + rows + '</div>' +
+        '<div class="hint" style="padding:4px 0;">tap to check · or circle several at once in draw mode</div>' +
+        '<div class="pillrow"><button class="pill good" data-action="Start cooking" data-cmd="cook:start">Start cooking</button>' + homeBtn() + '</div>';
+      return;
+    }
+    if (ck.phase === 'done') {
+      card.innerHTML =
+        '<div class="head"><span>COOKING · done</span><span class="chip task">Buon appetito</span></div>' +
+        '<div class="center">' +
+          '<div class="bigq">\u{1F35D} Carbonara complete</div>' +
+          '<div class="hint">' + ck.timersDone + ' timer' + (ck.timersDone === 1 ? '' : 's') + ' finished · ' +
+            ck.checked.filter(Boolean).length + '/' + INGREDIENTS.length + ' ingredients checked</div>' +
+        '</div>' +
+        '<div class="pillrow"><button class="pill" data-action="Cook again" data-cmd="cook:restart">Cook again</button>' + homeBtn() + '</div>';
+      return;
+    }
+    const s = STEPS[ck.step];
+    let timerHtml = '';
+    if (s.timer) {
+      if (ck.timer) {
+        timerHtml = '<div class="timerchip running">⏱ ' + ck.remaining + ':00</div>' +
+                    '<div class="hint">demo clock: 1 s = 1 min</div>';
+      } else {
+        timerHtml = '<button class="pill" data-action="Start ' + s.timer + ' min timer" data-cmd="cook:timer">⏱ Start ' + s.timer + ' min timer</button>' +
+                    '<div class="hint">demo clock: 1 s = 1 min</div>';
+      }
+    }
+    card.innerHTML =
+      '<div class="head"><span>COOKING · step ' + (ck.step + 1) + '/' + STEPS.length + '</span>' +
+        '<span class="chip task">Carbonara</span></div>' +
+      '<div class="center">' +
+        '<div class="steptext">' + s.text + '</div>' + timerHtml +
+        '<div class="hint">swipe right = next · swipe left = back</div>' +
+      '</div>' +
+      '<div class="pillrow">' +
+        '<button class="pill" data-action="Previous step" data-cmd="cook:back">← Back</button>' +
+        '<button class="pill good" data-action="Next step" data-cmd="cook:next">' +
+          (ck.step === STEPS.length - 1 ? 'Finish' : 'Next →') + '</button>' +
+        homeBtn() +
+      '</div>';
+  }
+
+  function renderIdeate() {
+    if (id8.finished) {
+      const kept = id8.kept.length
+        ? id8.kept.map(i => '⭐ ' + IDEAS[i].title).join('<br>')
+        : 'nothing shortlisted — harsh crowd';
+      card.innerHTML =
+        '<div class="head"><span>IDEATION · done</span><span class="chip task">Shortlist</span></div>' +
+        '<div class="scrollable center" id="scrollable">' +
+          '<div class="shortlist">' + kept + '</div>' +
+          '<div class="hint">' + id8.kept.length + ' kept · ' + id8.dropped.length + ' discarded</div>' +
+        '</div>' +
+        '<div class="pillrow"><button class="pill" data-action="Restart ideation" data-cmd="ideate:restart">Restart</button>' + homeBtn() + '</div>';
+      return;
+    }
+    const idea = IDEAS[id8.pos];
+    const details = id8.expanded
+      ? '<ul class="details">' + idea.details.map(d => '<li>' + d + '</li>').join('') + '</ul>'
+      : '';
+    card.innerHTML =
+      '<div class="head"><span>IDEATION · ' + (id8.pos + 1) + '/' + IDEAS.length + '</span>' +
+        '<span class="chip task">Hackathon</span></div>' +
+      '<div class="scrollable center" id="scrollable">' +
+        '<div class="idea-title">' + idea.title + '</div>' +
+        '<div class="idea-tag">' + idea.tag + '</div>' +
+        '<div class="tags">' + idea.tags.map(t => '<span class="chip">' + t + '</span>').join('') + '</div>' +
+        details +
+        '<div class="hint">swipe right = shortlist · swipe left = discard</div>' +
+      '</div>' +
+      '<div class="pillrow">' +
+        '<button class="pill" data-action="' + (id8.expanded ? 'Hide details' : 'Show details') + '" data-cmd="ideate:details">' +
+          (id8.expanded ? 'Less' : 'Details') + '</button>' +
+        '<button class="pill good" data-action="Shortlist idea" data-cmd="ideate:keep">⭐ Keep</button>' +
+        '<button class="pill bad" data-action="Discard idea" data-cmd="ideate:drop">Drop</button>' +
+        homeBtn() +
+      '</div>';
+  }
+
+  function renderSoon() {
+    card.innerHTML =
+      '<div class="head"><span>ASSISTANT</span><span class="chip">Not built yet</span></div>' +
+      '<div class="center">' +
+        '<div class="bigq" style="font-size:22px;">“' + esc(soonPrompt || '') + '”</div>' +
+        '<div class="hint">this task is one of the 7 still to come</div>' +
+      '</div>' +
+      '<div class="pillrow">' + homeBtn() + '</div>';
+  }
+
+  // ====================== commands ======================
+  function run(cmd) {
+    if (!cmd) return false;
+    const [ns, verb, arg] = cmd.split(':');
+
+    if (ns === 'home') { screen = 'home'; render(); return true; }
+
+    if (ns === 'open') {
+      const p = PROMPTS.find(x => x.id === verb);
+      if (!p) return false;
+      if (!p.ready) { soonPrompt = p.text; screen = 'soon'; }
+      else {
+        screen = p.id;
+        if (p.id === 'quiz') quizReset();
+        if (p.id === 'cook') cookReset();
+        if (p.id === 'ideate') ideateReset();
+      }
+      render();
+      return true;
+    }
+
+    if (ns === 'quiz') {
+      if (verb === 'restart') quizReset();
+      else if (qz.finished) return false;
+      else if (verb === 'reveal') qz.revealed = true;
+      else if (verb === 'skip') { qz.skipped++; quizAdvance(); }
+      else if (verb === 'got') { qz.got++; quizAdvance(); }
+      else if (verb === 'miss') { qz.missed++; qz.queue.push(qz.queue[qz.pos]); quizAdvance(); }
+      render();
+      return true;
+    }
+
+    if (ns === 'cook') {
+      if (verb === 'restart') cookReset();
+      else if (verb === 'ing') { const i = +arg; ck.checked[i] = !ck.checked[i]; }
+      else if (verb === 'start') ck.phase = 'steps';
+      else if (verb === 'next') {
+        stopTimer();
+        if (ck.step >= STEPS.length - 1) ck.phase = 'done';
+        else ck.step++;
+      }
+      else if (verb === 'back') { stopTimer(); if (ck.step > 0) ck.step--; }
+      else if (verb === 'timer') {
+        const s = STEPS[ck.step];
+        if (!s.timer || ck.timer) return false;
+        ck.remaining = s.timer;
+        ck.timer = setInterval(() => {
+          ck.remaining--;
+          if (ck.remaining <= 0) {
+            stopTimer();
+            ck.timersDone++;
+            showToast('⏰ Timer done — ' + s.text);
+            sendAck('Timer done', true);
+          }
+          if (screen === 'cook') render();
+        }, 1000);
+      }
+      render();
+      return true;
+    }
+
+    if (ns === 'ideate') {
+      if (verb === 'restart') ideateReset();
+      else if (id8.finished) return false;
+      else if (verb === 'details') id8.expanded = !id8.expanded;
+      else if (verb === 'keep') { id8.kept.push(id8.pos); ideateAdvance(); }
+      else if (verb === 'drop') { id8.dropped.push(id8.pos); ideateAdvance(); }
+      render();
+      return true;
+    }
+    return false;
+  }
+
+  function quizAdvance() {
+    qz.revealed = false;
+    qz.pos++;
+    if (qz.pos >= qz.queue.length) qz.finished = true;
+  }
+  function ideateAdvance() {
+    id8.expanded = false;
+    id8.pos++;
+    if (id8.pos >= IDEAS.length) id8.finished = true;
+  }
+
+  // swipe → per-screen command
+  function swipeCmd(dir) {
+    if (screen === 'quiz' && !qz.finished) return dir === 'right' ? ['quiz:got', 'Got it'] : ['quiz:miss', 'Missed it — will come back'];
+    if (screen === 'cook' && ck.phase === 'steps') return dir === 'right' ? ['cook:next', 'Next step'] : ['cook:back', 'Previous step'];
+    if (screen === 'ideate' && !id8.finished) return dir === 'right' ? ['ideate:keep', 'Shortlisted ⭐'] : ['ideate:drop', 'Discarded'];
+    return null;
+  }
+
+  // ====================== WS + input ======================
+  function connect() {
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', role: 'display' }));
+    ws.onclose = () => { setStatus(false, 'server disconnected — retrying…'); setTimeout(connect, 1500); };
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      handle(msg);
+    };
+  }
+  function setStatus(ok, text) {
+    statusbar.classList.toggle('connected', ok);
+    statustext.textContent = text;
+  }
+  function sendAck(action, hit) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ack', action, hit }));
+  }
+
+  function handle(msg) {
+    switch (msg.type) {
+      case 'status': {
+        const n = msg.trackpads | 0;
+        setStatus(n > 0, n > 0 ? 'trackpad connected (' + n + ')' : 'waiting for trackpad…');
+        cursor.classList.toggle('hidden', n === 0);
+        break;
+      }
+      case 'move':
+        cx = Math.max(0, Math.min(W, cx + (+msg.dx || 0)));
+        cy = Math.max(0, Math.min(H, cy + (+msg.dy || 0)));
+        renderCursor();
+        break;
+      case 'tap': doTap(); break;
+      case 'swipe': doSwipe(msg.dir); break;
+      case 'scroll': doScroll(+msg.dy || 0); break;
+      case 'draw': doDraw(msg); break;
+      case 'mode':
+        cursor.classList.toggle('pen', msg.mode === 'draw');
+        showToast(msg.mode === 'draw' ? '✎ draw mode' : '○ cursor mode');
+        break;
+    }
+  }
+
+  function renderCursor() {
+    cursor.style.left = cx + 'px';
+    cursor.style.top = cy + 'px';
+    updateHover();
+  }
+  function elementUnderCursor() {
+    const rect = hud.getBoundingClientRect();
+    cursor.style.display = 'none';
+    const el = document.elementFromPoint(rect.left + cx, rect.top + cy);
+    cursor.style.display = '';
+    return el ? el.closest('[data-action]') : null;
+  }
+  function updateHover() {
+    const el = elementUnderCursor();
+    if (el !== hovered) {
+      if (hovered && hovered.isConnected) hovered.classList.remove('hud-hover');
+      hovered = el;
+      if (hovered) hovered.classList.add('hud-hover');
+    }
+  }
+
+  function doTap() {
+    const r = document.createElement('div');
+    r.className = 'ripple';
+    r.style.left = cx + 'px';
+    r.style.top = cy + 'px';
+    hud.appendChild(r);
+    r.addEventListener('animationend', () => r.remove());
+
+    const el = elementUnderCursor();
+    if (el && run(el.dataset.cmd)) {
+      showToast(el.dataset.action);
+      sendAck(el.dataset.action, true);
+    } else {
+      showToast('nothing selectable');
+      sendAck('nothing selectable', false);
+    }
+  }
+
+  function doSwipe(dir) {
+    const sc = swipeCmd(dir);
+    flash.className = dir === 'right' ? 'right show' : 'left show';
+    setTimeout(() => { flash.className = ''; }, 450);
+    if (sc && run(sc[0])) {
+      showToast(sc[1]);
+      sendAck(sc[1], true);
+    } else {
+      sendAck('swipe does nothing here', false);
+    }
+  }
+
+  function doScroll(dy) {
+    const el = document.getElementById('scrollable');
+    if (el) { el.scrollTop += dy; updateHover(); }
+  }
+
+  // ====================== drawing / circling ======================
+  let stroke = [];
+  let fadeTimer = null;
+
+  function drawStroke() {
+    inkCtx.clearRect(0, 0, W, H);
+    if (stroke.length < 2) return;
+    inkCtx.strokeStyle = 'rgba(77, 210, 255, 0.9)';
+    inkCtx.lineWidth = 3;
+    inkCtx.lineCap = 'round';
+    inkCtx.lineJoin = 'round';
+    inkCtx.shadowColor = 'rgba(77, 210, 255, 0.8)';
+    inkCtx.shadowBlur = 8;
+    inkCtx.beginPath();
+    inkCtx.moveTo(stroke[0].x, stroke[0].y);
+    for (let i = 1; i < stroke.length; i++) inkCtx.lineTo(stroke[i].x, stroke[i].y);
+    inkCtx.stroke();
+  }
+
+  function clearInk(withFade) {
+    clearTimeout(fadeTimer);
+    if (withFade) {
+      ink.classList.add('fade');
+      fadeTimer = setTimeout(() => {
+        stroke = [];
+        inkCtx.clearRect(0, 0, W, H);
+        ink.classList.remove('fade');
+      }, 650);
+    } else {
+      stroke = [];
+      inkCtx.clearRect(0, 0, W, H);
+      ink.classList.remove('fade');
+    }
+  }
+
+  function doDraw(msg) {
+    if (msg.phase === 'clear') { clearInk(false); return; }
+    const x = Math.max(0, Math.min(W, (+msg.x || 0) * W));
+    const y = Math.max(0, Math.min(H, (+msg.y || 0) * H));
+    if (msg.phase === 'start') {
+      clearTimeout(fadeTimer);
+      ink.classList.remove('fade');
+      stroke = [{ x, y }];
+      drawStroke();
+    } else if (msg.phase === 'move') {
+      stroke.push({ x, y });
+      drawStroke();
+    } else if (msg.phase === 'end') {
+      stroke.push({ x, y });
+      drawStroke();
+      interpretStroke();
+    }
+  }
+
+  function strokeLength(pts) {
+    let L = 0;
+    for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    return L;
+  }
+  function inPoly(px, py, pts) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+      if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+
+  function interpretStroke() {
+    const pts = stroke;
+    if (pts.length < 8) { clearInk(true); return; }
+    const L = strokeLength(pts);
+    const gap = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y);
+    const closed = L > 110 && gap < Math.max(45, L * 0.25);
+    if (!closed) {
+      // open stroke: just an annotation for now
+      showToast('✎ drawing noted (not a circle)');
+      sendAck('drawing noted', false);
+      clearInk(true);
+      return;
+    }
+    // circling: find actionable elements whose centers fall inside the loop
+    const rect = hud.getBoundingClientRect();
+    const hits = [...card.querySelectorAll('[data-action]')].filter((el) => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return false;
+      const ex = r.left - rect.left + r.width / 2;
+      const ey = r.top - rect.top + r.height / 2;
+      return inPoly(ex, ey, pts);
+    });
+
+    if (hits.length === 0) {
+      showToast('circled nothing');
+      sendAck('circled nothing', false);
+    } else if (hits.length === 1) {
+      hits[0].classList.add('circled');
+      const el = hits[0];
+      setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
+      if (run(el.dataset.cmd)) {
+        showToast('○ ' + el.dataset.action);
+        sendAck('Circled: ' + el.dataset.action, true);
+      }
+    } else {
+      // several things circled: act on them only if they're multi-selectable
+      const multi = hits.filter((el) => el.dataset.multi === '1');
+      hits.forEach((el) => {
+        el.classList.add('circled');
+        setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
+      });
+      if (multi.length === hits.length) {
+        multi.forEach((el) => run(el.dataset.cmd));
+        const names = multi.map((el) => el.dataset.action).join(', ');
+        showToast('○ ' + multi.length + ' selected');
+        sendAck('Circled: ' + names, true);
+      } else {
+        const names = hits.map((el) => el.dataset.action).join(', ');
+        showToast('circled ' + hits.length + ' things — ambiguous, tap one');
+        sendAck('Ambiguous circle: ' + names, false);
+      }
+    }
+    clearInk(true);
+  }
+
+  function showToast(text) {
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 1700);
+  }
+
+  render();
+  renderCursor();
+  connect();
+})();
+</script>
+</body>
+</html>

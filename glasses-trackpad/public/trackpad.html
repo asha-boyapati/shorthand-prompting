@@ -77,6 +77,34 @@
     pointer-events: none;
   }
 
+  #modebar {
+    display: flex;
+    gap: 10px;
+    padding: 0 12px 14px;
+  }
+  .modebtn {
+    flex: 1;
+    padding: 12px 0;
+    border-radius: 14px;
+    border: 1px solid rgba(77,210,255,0.35);
+    background: #0b1119;
+    color: #7d93a3;
+    font-size: 14px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-align: center;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .modebtn.active {
+    color: var(--glow);
+    border-color: var(--glow);
+    box-shadow: 0 0 12px rgba(77,210,255,0.25);
+  }
+  #clearbtn { display: none; flex: 0 0 auto; padding: 12px 18px; }
+  body.drawing #clearbtn { display: block; }
+  body.drawing #pad { border-color: rgba(77,210,255,0.7); }
+
   #banner {
     position: fixed;
     top: 12px; left: 50%;
@@ -105,8 +133,15 @@
   <div id="padlabel">
     <div><b>wrist trackpad</b></div>
     <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; pan / scroll</div>
-    <div>quiz: flick right &mdash; got it &nbsp;&middot;&nbsp; flick left &mdash; missed it</div>
+    <div>flick right &mdash; yes / next &nbsp;&middot;&nbsp; flick left &mdash; no / back</div>
+    <div>draw mode: circle things to select them</div>
   </div>
+</div>
+
+<div id="modebar">
+  <div class="modebtn active" id="cursorBtn">&#9675; Cursor</div>
+  <div class="modebtn" id="drawBtn">&#9998; Draw</div>
+  <div class="modebtn" id="clearbtn">Clear</div>
 </div>
 
 <div id="banner"></div>
@@ -190,9 +225,38 @@
     if (d) { d.remove(); dots.delete(id); }
   }
 
+  // --- input mode (cursor vs draw) ---
+  const cursorBtn = document.getElementById('cursorBtn');
+  const drawBtn = document.getElementById('drawBtn');
+  const clearBtn = document.getElementById('clearbtn');
+  let inputMode = 'cursor';
+
+  function setInputMode(m) {
+    inputMode = m;
+    cursorBtn.classList.toggle('active', m === 'cursor');
+    drawBtn.classList.toggle('active', m === 'draw');
+    document.body.classList.toggle('drawing', m === 'draw');
+    send({ type: 'mode', mode: m });
+    vibrate(10);
+  }
+  cursorBtn.addEventListener('click', () => setInputMode('cursor'));
+  drawBtn.addEventListener('click', () => setInputMode('draw'));
+  clearBtn.addEventListener('click', () => { send({ type: 'draw', phase: 'clear' }); vibrate(10); });
+
   // --- gesture handling via pointer events (touch + mouse fallback) ---
   const active = new Map(); // pointerId -> {x, y, startX, startY, startT}
   let mode = null;          // 'move' | 'scroll'
+  let strokeLive = false;   // draw mode: stroke already streaming to display
+  let strokeBuf = [];       // draw mode: points buffered until tap/draw is decided
+
+  function norm(p) {
+    const r = pad.getBoundingClientRect();
+    return { x: p.x / r.width, y: p.y / r.height };
+  }
+  function sendDraw(phase, p) {
+    const n = norm(p);
+    send({ type: 'draw', phase: phase, x: n.x, y: n.y });
+  }
 
   function padPos(ev) {
     const r = pad.getBoundingClientRect();
@@ -206,6 +270,15 @@
     active.set(ev.pointerId, { x: p.x, y: p.y, startX: p.x, startY: p.y, startT: performance.now() });
     showDot(ev.pointerId, p.x, p.y);
     mode = active.size >= 2 ? 'scroll' : 'move';
+    if (active.size === 1 && inputMode === 'draw') {
+      strokeLive = false;
+      strokeBuf = [p];
+    } else if (active.size >= 2 && strokeLive) {
+      // second finger landed mid-stroke: close the stroke cleanly
+      sendDraw('end', p);
+      strokeLive = false;
+      strokeBuf = [];
+    }
   });
 
   pad.addEventListener('pointermove', (ev) => {
@@ -225,6 +298,21 @@
       // movement so the two fingers don't double-count.
       if (ev.pointerId === firstPointerId()) {
         send({ type: 'scroll', dx: -dx * SCROLL_SENS, dy: -dy * SCROLL_SENS });
+      }
+    } else if (inputMode === 'draw') {
+      if (strokeLive) {
+        sendDraw('move', p);
+      } else {
+        strokeBuf.push(p);
+        const dt = performance.now() - st.startT;
+        const dist = Math.hypot(p.x - st.startX, p.y - st.startY);
+        if (dist > TAP_SLOP || dt > TAP_MS) {
+          // it's a real stroke, not a tap: flush the buffered points
+          sendDraw('start', strokeBuf[0]);
+          for (let i = 1; i < strokeBuf.length; i++) sendDraw('move', strokeBuf[i]);
+          strokeBuf = [];
+          strokeLive = true;
+        }
       }
     } else {
       send({ type: 'move', dx: dx * MOVE_SENS, dy: dy * MOVE_SENS });
@@ -246,15 +334,27 @@
       const dx = st.x - st.startX;
       const dy = st.y - st.startY;
       const dist = Math.hypot(dx, dy);
-      const speed = dist / Math.max(dt, 1) * 1000; // px/s
-      if (dt < SWIPE_MS && Math.abs(dx) > SWIPE_DIST &&
-          Math.abs(dx) > Math.abs(dy) * 1.5 && speed > SWIPE_SPEED) {
-        // fast mostly-horizontal flick -> swipe, not a tap/move tail
-        send({ type: 'swipe', dir: dx > 0 ? 'right' : 'left' });
-        vibrate(25);
-      } else if (dt < TAP_MS && dist < TAP_SLOP) {
-        send({ type: 'tap' });
-        vibrate(15);
+      if (inputMode === 'draw') {
+        if (strokeLive) {
+          sendDraw('end', { x: st.x, y: st.y });
+          vibrate(12);
+        } else if (dt < TAP_MS && dist < TAP_SLOP) {
+          send({ type: 'tap' }); // quick tap still clicks in draw mode
+          vibrate(15);
+        }
+        strokeLive = false;
+        strokeBuf = [];
+      } else {
+        const speed = dist / Math.max(dt, 1) * 1000; // px/s
+        if (dt < SWIPE_MS && Math.abs(dx) > SWIPE_DIST &&
+            Math.abs(dx) > Math.abs(dy) * 1.5 && speed > SWIPE_SPEED) {
+          // fast mostly-horizontal flick -> swipe, not a tap/move tail
+          send({ type: 'swipe', dir: dx > 0 ? 'right' : 'left' });
+          vibrate(25);
+        } else if (dt < TAP_MS && dist < TAP_SLOP) {
+          send({ type: 'tap' });
+          vibrate(15);
+        }
       }
     }
     if (active.size === 0) mode = null;

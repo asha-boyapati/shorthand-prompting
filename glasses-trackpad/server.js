@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 8080;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const ROUTES = {
+  '/glasses': 'glasses.html',
   '/display': 'display.html',
   '/trackpad': 'trackpad.html',
   '/quiz': 'quiz.html',
@@ -21,7 +22,7 @@ const server = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
 
   if (url === '/') {
-    res.writeHead(302, { Location: '/display' });
+    res.writeHead(302, { Location: '/glasses' });
     res.end();
     return;
   }
@@ -130,8 +131,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  glasses-trackpad prototype');
   console.log('  ==========================');
-  console.log(`  Glasses display (laptop):  http://localhost:${PORT}/display`);
-  console.log(`  Quiz mode (laptop):        http://localhost:${PORT}/quiz`);
+  console.log(`  Glasses assistant (laptop): http://localhost:${PORT}/glasses`);
+  console.log(`  GitHub mock (laptop):      http://localhost:${PORT}/display`);
+  console.log(`  Quiz only (laptop):        http://localhost:${PORT}/quiz`);
   console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad`);
   console.log('');
 });
