@@ -400,8 +400,8 @@
       : '<button class="pill" data-action="Reveal answer" data-cmd="quiz:reveal">Reveal answer</button>' +
         '<button class="pill" data-action="Skip" data-cmd="quiz:skip">Skip</button>';
     card.innerHTML =
-      '<div class="head"><span>QUIZ · ' + (qz.pos + 1) + '/' + qz.queue.length + '</span>' +
-        '<span class="chip ' + q.cls + '">' + q.topic + '</span></div>' +
+      '<div class="head"><span data-content="quiz-progress">QUIZ · ' + (qz.pos + 1) + '/' + qz.queue.length + '</span>' +
+        '<span class="chip ' + q.cls + '" data-content="quiz-topic">' + q.topic + '</span></div>' +
       '<div class="center">' +
         '<div class="bigq" data-content="quiz-question">' + q.text + '</div>' +
         '<div class="biganswer ' + (qz.revealed ? '' : 'hidden') + '" data-content="quiz-answer">' + q.answer + '</div>' +
@@ -417,7 +417,7 @@
         ' data-cmd="cook:ing:' + i + '" data-multi="1"><span class="box">' +
         (ck.checked[i] ? '✓' : '') + '</span>' + esc(ing) + '</div>').join('');
       card.innerHTML =
-        '<div class="head"><span>COOKING · carbonara</span><span class="chip task">Ingredients</span></div>' +
+        '<div class="head"><span>COOKING · carbonara</span><span class="chip task" data-content="cook-chip">Ingredients</span></div>' +
         '<div class="scrollable" id="scrollable">' + rows + '</div>' +
         '<div class="hint" style="padding:4px 0;">tap to check · or circle several at once in draw mode</div>' +
         '<div class="pillrow"><button class="pill good" data-action="Start cooking" data-cmd="cook:start">Start cooking</button>' + homeBtn() + '</div>';
@@ -447,7 +447,7 @@
     }
     card.innerHTML =
       '<div class="head"><span>COOKING · step ' + (ck.step + 1) + '/' + STEPS.length + '</span>' +
-        '<span class="chip task">Carbonara</span></div>' +
+        '<span class="chip task" data-content="cook-chip">Carbonara</span></div>' +
       '<div class="center">' +
         '<div class="steptext" data-content="cook-step">' + s.text + '</div>' + timerHtml +
         '<div class="hint">swipe right = next · swipe left = back</div>' +
@@ -480,7 +480,7 @@
       : '';
     card.innerHTML =
       '<div class="head"><span>IDEATION · ' + (id8.pos + 1) + '/' + IDEAS.length + '</span>' +
-        '<span class="chip task">Hackathon</span></div>' +
+        '<span class="chip task" data-content="ideate-chip">Hackathon</span></div>' +
       '<div class="scrollable center" id="scrollable">' +
         '<div class="idea-title" data-content="idea-title">' + idea.title + '</div>' +
         '<div class="idea-tag" data-content="idea-tagline">' + idea.tag + '</div>' +
@@ -529,6 +529,15 @@
     }
 
     if (ns === 'quiz') {
+      if (verb === 'only') {
+        quizReset();
+        const topic = arg === 'addition' ? 'Addition' : 'Multiplication';
+        qz.queue = qz.queue.filter((q) => q.topic === topic);
+        screen = 'quiz';
+        render();
+        return true;
+      }
+      if (verb === 'mixed') { quizReset(); screen = 'quiz'; render(); return true; }
       if (verb === 'restart') quizReset();
       else if (qz.finished) return false;
       else if (verb === 'reveal') qz.revealed = true;
@@ -638,7 +647,10 @@
       case 'assistant': onAssistant(msg); break;
       case 'mode':
         cursor.classList.toggle('pen', msg.mode === 'draw');
-        showToast(msg.mode === 'draw' ? '✎ draw mode' : '○ cursor mode');
+        drawIntent = msg.intent === 'correct' ? 'correct' : 'interact';
+        showToast(msg.mode === 'draw'
+          ? (drawIntent === 'correct' ? '\u{1F527} draw · corrective' : '✋ draw · interactive')
+          : '○ cursor mode');
         break;
     }
   }
@@ -759,10 +771,12 @@
     }
   }
 
+  // The pen is relative, like the cursor: a stroke starts wherever the
+  // cursor currently is and finger deltas drag it, leaving ink. (Absolute
+  // x/y coordinates are still accepted for older trackpad pages.)
+  let penX = 0, penY = 0;
   function doDraw(msg) {
     if (msg.phase === 'clear') { clearInk(false); return; }
-    const x = Math.max(0, Math.min(W, (+msg.x || 0) * W));
-    const y = Math.max(0, Math.min(H, (+msg.y || 0) * H));
     if (msg.phase === 'start') {
       // a fading drawing was already interpreted - don't let its strokes
       // rejoin the new drawing
@@ -770,13 +784,23 @@
       clearTimeout(fadeTimer);
       clearTimeout(strokeIdleTimer); // another stroke joins this drawing
       ink.classList.remove('fade');
-      stroke = [{ x, y }];
+      penX = (typeof msg.x === 'number') ? Math.max(0, Math.min(W, msg.x * W)) : cx;
+      penY = (typeof msg.y === 'number') ? Math.max(0, Math.min(H, msg.y * H)) : cy;
+      stroke = [{ x: penX, y: penY }];
       drawStrokes();
     } else if (msg.phase === 'move') {
-      stroke.push({ x, y });
+      if (typeof msg.dx === 'number') {
+        penX = Math.max(0, Math.min(W, penX + msg.dx));
+        penY = Math.max(0, Math.min(H, penY + (+msg.dy || 0)));
+      } else {
+        penX = Math.max(0, Math.min(W, (+msg.x || 0) * W));
+        penY = Math.max(0, Math.min(H, (+msg.y || 0) * H));
+      }
+      stroke.push({ x: penX, y: penY });
+      cx = penX; cy = penY; // the cursor follows the pen
+      renderCursor();
       drawStrokes();
     } else if (msg.phase === 'end') {
-      stroke.push({ x, y });
       if (stroke.length >= 3) strokes.push(stroke);
       stroke = [];
       drawStrokes();
@@ -841,9 +865,21 @@
     return { pts, L, closed, shape, minX, minY, maxX, maxY, avgY: sumY / pts.length };
   }
 
+  let drawIntent = 'interact';
+
   function interpretStrokes() {
     const an = strokes.filter((s) => s.length >= 8).map(analyzeStroke);
     if (!an.length) { clearInk(true); return; }
+
+    // while a proposal is up, a short quick horizontal stroke in draw mode
+    // answers it (right = yes, left = no) instead of being interpreted
+    if (proposal && an.length === 1 && !an[0].closed &&
+        an[0].shape === 'line-horizontal' && an[0].L < 170) {
+      const s = an[0].pts;
+      clearInk(false);
+      doSwipe(s[s.length - 1].x >= s[0].x ? 'right' : 'left');
+      return;
+    }
 
     const rect = hud.getBoundingClientRect();
     const minX = Math.min(...an.map((a) => a.minX));
@@ -898,6 +934,12 @@
       pendingTimer = setTimeout(() => localInterpret(), 12000);
       const payload = {
         screen,
+        mode: drawIntent,
+        extraCommands: screen === 'quiz' ? [
+          { cmd: 'quiz:only:addition', desc: 'restart the quiz with addition questions only' },
+          { cmd: 'quiz:only:multiplication', desc: 'restart the quiz with multiplication questions only' },
+          { cmd: 'quiz:mixed', desc: 'restart the quiz with mixed topics' },
+        ] : [],
         drawing: {
           strokes: an.map((a) => ({
             shape: a.shape,

@@ -21,6 +21,10 @@ let aiEnabled = true;
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
 The user wears glasses with a small HUD and draws strokes on a wrist trackpad. You receive JSON describing:
 - screen: which app screen is showing
+- mode: the user's declared drawing intent, chosen on the trackpad:
+  "interact" = the drawing is INPUT to the app: select, activate, answer, navigate. The user may also HANDWRITE words or numbers - read the handwriting in the screenshot. A written answer to the on-screen question means they are answering it (check it: if right, say so and use the matching action, e.g. got-it; if wrong, say the correct answer). Written "yes"/"no" answers your previous question.
+  "correct" = the drawing critiques the DISPLAY itself: the marked part is a feature they want changed. Propose changing, rewriting, moving or hiding it (edits), or use a matching extraCommand (e.g. circling the quiz topic chip -> offer to switch the quiz to one topic, or to hide the chip with style dim). Do not treat marks as app input in this mode.
+- extraCommands: additional cmds that are valid in "actions" but have no on-screen element (each with a description)
 - drawing: one or more strokes made in quick succession (a complex drawing - an X, an arrow, a question mark, a letter - spans several strokes; interpret them TOGETHER as one gesture). Each stroke has a shape guess (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length and bounding box in the 480x400 HUD; the shape guesses are crude, trust the screenshot over them for multi-stroke drawings
 - elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined by the drawing)
 - contents: non-interactive display text regions (id, current text, same flags)

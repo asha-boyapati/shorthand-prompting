@@ -104,6 +104,9 @@
   #clearbtn { display: none; flex: 0 0 auto; padding: 12px 18px; }
   body.drawing #clearbtn { display: block; }
   body.drawing #pad { border-color: rgba(77,210,255,0.7); }
+  #intentbar { display: none; gap: 10px; padding: 0 12px 14px; }
+  body.drawing #intentbar { display: flex; }
+  #intentbar .modebtn.active { color: #ffc14d; border-color: #ffc14d; box-shadow: 0 0 12px rgba(255,193,77,0.25); }
 
   #banner {
     position: fixed;
@@ -142,6 +145,11 @@
   <div class="modebtn active" id="cursorBtn">&#9675; Cursor</div>
   <div class="modebtn" id="drawBtn">&#9998; Draw</div>
   <div class="modebtn" id="clearbtn">Clear</div>
+</div>
+
+<div id="intentbar">
+  <div class="modebtn active" id="interactBtn">&#9995; Interact</div>
+  <div class="modebtn" id="correctBtn">&#128295; Correct</div>
 </div>
 
 <div id="banner"></div>
@@ -225,37 +233,49 @@
     if (d) { d.remove(); dots.delete(id); }
   }
 
-  // --- input mode (cursor vs draw) ---
+  // --- input mode (cursor vs draw, and draw intent) ---
   const cursorBtn = document.getElementById('cursorBtn');
   const drawBtn = document.getElementById('drawBtn');
   const clearBtn = document.getElementById('clearbtn');
+  const interactBtn = document.getElementById('interactBtn');
+  const correctBtn = document.getElementById('correctBtn');
   let inputMode = 'cursor';
+  let drawIntent = 'interact'; // interact = drawings are input; correct = drawings critique the UI
 
+  function sendMode() {
+    send({ type: 'mode', mode: inputMode, intent: drawIntent });
+  }
   function setInputMode(m) {
     inputMode = m;
     cursorBtn.classList.toggle('active', m === 'cursor');
     drawBtn.classList.toggle('active', m === 'draw');
     document.body.classList.toggle('drawing', m === 'draw');
-    send({ type: 'mode', mode: m });
+    sendMode();
+    vibrate(10);
+  }
+  function setIntent(i) {
+    drawIntent = i;
+    interactBtn.classList.toggle('active', i === 'interact');
+    correctBtn.classList.toggle('active', i === 'correct');
+    sendMode();
     vibrate(10);
   }
   cursorBtn.addEventListener('click', () => setInputMode('cursor'));
   drawBtn.addEventListener('click', () => setInputMode('draw'));
+  interactBtn.addEventListener('click', () => setIntent('interact'));
+  correctBtn.addEventListener('click', () => setIntent('correct'));
   clearBtn.addEventListener('click', () => { send({ type: 'draw', phase: 'clear' }); vibrate(10); });
 
   // --- gesture handling via pointer events (touch + mouse fallback) ---
   const active = new Map(); // pointerId -> {x, y, startX, startY, startT}
   let mode = null;          // 'move' | 'scroll'
   let strokeLive = false;   // draw mode: stroke already streaming to display
-  let strokeBuf = [];       // draw mode: points buffered until tap/draw is decided
+  let strokeBuf = [];       // draw mode: buffered move deltas until tap/draw is decided
 
-  function norm(p) {
-    const r = pad.getBoundingClientRect();
-    return { x: p.x / r.width, y: p.y / r.height };
-  }
-  function sendDraw(phase, p) {
-    const n = norm(p);
-    send({ type: 'draw', phase: phase, x: n.x, y: n.y });
+  // Drawing is relative, like the cursor: the pen starts wherever the
+  // cursor is on the glasses and finger movement drags it, leaving ink.
+  function sendDrawMove(dx, dy) {
+    send({ type: 'draw', phase: 'move', dx: dx * MOVE_SENS, dy: dy * MOVE_SENS });
   }
 
   function padPos(ev) {
@@ -272,10 +292,10 @@
     mode = active.size >= 2 ? 'scroll' : 'move';
     if (active.size === 1 && inputMode === 'draw') {
       strokeLive = false;
-      strokeBuf = [p];
+      strokeBuf = [];
     } else if (active.size >= 2 && strokeLive) {
       // second finger landed mid-stroke: close the stroke cleanly
-      sendDraw('end', p);
+      send({ type: 'draw', phase: 'end' });
       strokeLive = false;
       strokeBuf = [];
     }
@@ -301,15 +321,15 @@
       }
     } else if (inputMode === 'draw') {
       if (strokeLive) {
-        sendDraw('move', p);
+        sendDrawMove(dx, dy);
       } else {
-        strokeBuf.push(p);
+        strokeBuf.push([dx, dy]);
         const dt = performance.now() - st.startT;
         const dist = Math.hypot(p.x - st.startX, p.y - st.startY);
         if (dist > TAP_SLOP || dt > TAP_MS) {
-          // it's a real stroke, not a tap: flush the buffered points
-          sendDraw('start', strokeBuf[0]);
-          for (let i = 1; i < strokeBuf.length; i++) sendDraw('move', strokeBuf[i]);
+          // it's a real stroke, not a tap: flush the buffered deltas
+          send({ type: 'draw', phase: 'start' }); // pen starts at the cursor
+          for (const [bx, by] of strokeBuf) sendDrawMove(bx, by);
           strokeBuf = [];
           strokeLive = true;
         }
@@ -336,7 +356,7 @@
       const dist = Math.hypot(dx, dy);
       if (inputMode === 'draw') {
         if (strokeLive) {
-          sendDraw('end', { x: st.x, y: st.y });
+          send({ type: 'draw', phase: 'end' });
           vibrate(12);
         } else if (dt < TAP_MS && dist < TAP_SLOP) {
           send({ type: 'tap' }); // quick tap still clicks in draw mode
