@@ -144,8 +144,10 @@
 <div id="modebar">
   <div class="modebtn active" id="cursorBtn">&#9675; Cursor</div>
   <div class="modebtn" id="drawBtn">&#9998; Draw</div>
+  <div class="modebtn" id="photoBtn">&#128247;</div>
   <div class="modebtn" id="clearbtn">Clear</div>
 </div>
+<input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none">
 
 <div id="intentbar">
   <div class="modebtn active" id="interactBtn">&#9995; Interact</div>
@@ -265,6 +267,32 @@
   interactBtn.addEventListener('click', () => setIntent('interact'));
   correctBtn.addEventListener('click', () => setIntent('correct'));
   clearBtn.addEventListener('click', () => { send({ type: 'draw', phase: 'clear' }); vibrate(10); });
+
+  // --- camera: snap a photo with the phone, send it to the glasses ---
+  const photoBtn = document.getElementById('photoBtn');
+  const photoInput = document.getElementById('photoInput');
+  photoBtn.addEventListener('click', () => photoInput.click());
+  photoInput.addEventListener('change', () => {
+    const f = photoInput.files && photoInput.files[0];
+    photoInput.value = '';
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => {
+      const maxD = 1024;
+      const s = Math.min(1, maxD / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * s);
+      c.height = Math.round(img.height * s);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      send({ type: 'photo', image: c.toDataURL('image/jpeg', 0.7) });
+      showBanner('\u{1F4F7} photo sent to glasses');
+      vibrate(20);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); showBanner('could not read that photo'); };
+    img.src = url;
+  });
 
   // --- gesture handling via pointer events (touch + mouse fallback) ---
   const active = new Map(); // pointerId -> {x, y, startX, startY, startT}

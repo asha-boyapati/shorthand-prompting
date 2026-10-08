@@ -16,7 +16,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 8; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 9; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -46,6 +46,10 @@ Gesture vocabulary (defaults, override with judgment and the screenshot):
 - scribble over content: the user dislikes it - rewrite that text differently
 - other shapes (arrow, question mark, check): judge from the screenshot; a check often means confirm/next, a question mark means explain (use "say" plus an edit if helpful)
 
+SPECIAL TASK: when the payload has task "photo-translate", the attached image is a photo the user just took with their camera. Read ALL the text you can see in it and translate each distinct piece to Spanish. Respond with the usual JSON shape plus a "lines" field:
+{"say": "<one-sentence summary of what the photo shows>", "confidence": "high", "actions": [], "edits": [], "lines": [{"orig": "<text as written>", "es": "<Spanish translation>"}, ...]}
+If no text is readable, use "lines": [] and say so.
+
 Respond with ONLY compact JSON, no markdown fences:
 {"say": "<one or two short sentences to show the user>",
  "confidence": "high" | "normal",
@@ -70,9 +74,13 @@ function parseInterpretation(raw) {
         ? parsed.edits.filter(e => e && typeof e.target === 'string')
             .map(({ target, text, style, note }) => ({ target, text, style, note }))
         : [],
+      lines: Array.isArray(parsed.lines)
+        ? parsed.lines.filter(l => l && typeof l.orig === 'string' && typeof l.es === 'string')
+            .map(({ orig, es }) => ({ orig, es })).slice(0, 25)
+        : [],
     };
   } catch {
-    return { say: text.slice(0, 140), confidence: 'normal', actions: [], edits: [] };
+    return { say: text.slice(0, 140), confidence: 'normal', actions: [], edits: [], lines: [] };
   }
 }
 
@@ -258,7 +266,7 @@ wss.on('connection', (ws) => {
         .then((r) => {
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
           console.log(`[${tag}] (${r.confidence}) "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
-          sendTo('display', { type: 'assistant', ai: true, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits });
+          sendTo('display', { type: 'assistant', ai: true, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits, lines: r.lines });
           sendTo('trackpad', { type: 'ack', action: r.say, hit: r.actions.length > 0 || r.edits.length > 0 });
         })
         .catch((err) => {
