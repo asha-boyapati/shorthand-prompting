@@ -21,10 +21,10 @@ let aiEnabled = true;
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
 The user wears glasses with a small HUD and draws strokes on a wrist trackpad. You receive JSON describing:
 - screen: which app screen is showing
-- stroke: shape (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length, bounding box in the 480x400 HUD
-- elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined by the stroke)
+- drawing: one or more strokes made in quick succession (a complex drawing - an X, an arrow, a question mark, a letter - spans several strokes; interpret them TOGETHER as one gesture). Each stroke has a shape guess (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length and bounding box in the 480x400 HUD; the shape guesses are crude, trust the screenshot over them for multi-stroke drawings
+- elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined by the drawing)
 - contents: non-interactive display text regions (id, current text, same flags)
-A screenshot of the HUD with the glowing stroke drawn on it may also be attached - use it to see the exact shape and placement of the drawing.
+A screenshot of the HUD with the glowing drawing on it may also be attached - use it to see the exact shape and placement.
 
 Gestures are either INTERACTIVE (select/activate something) or CORRECTIVE (change how a part is displayed).
 Gesture vocabulary (defaults, override with judgment and the screenshot):
@@ -35,13 +35,16 @@ Gesture vocabulary (defaults, override with judgment and the screenshot):
 - other shapes (arrow, question mark, check): judge from the screenshot; a check often means confirm/next, a question mark means explain (use "say" plus an edit if helpful)
 
 Respond with ONLY compact JSON, no markdown fences:
-{"say": "<one short friendly sentence to show the user>",
+{"say": "<one short sentence to show the user>",
+ "confidence": "high" | "normal",
  "actions": ["<cmd>", ...],
  "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)"}]}
 - actions: for interactive intent; each cmd copied EXACTLY from elements
 - edits: for corrective intent; target copied EXACTLY from elements' cmd or contents' id
 
-IMPORTANT: prefer DOING something over only commenting. Nearly every gesture that touches an element or content should produce at least one action or edit; "say" alone is a last resort. Only return empty arrays when the stroke touches nothing recognizable - then ask a brief clarifying question in "say".`;
+ALWAYS make your best guess at a concrete action or edit - never return empty actions AND empty edits unless the drawing touches nothing recognizable at all.
+confidence "high" = the intent is unmistakable (e.g. a plain circle around one button or checklist item); your actions/edits run immediately and "say" states what you did.
+confidence "normal" = everything else; the glasses show your proposal and the user confirms with a flick, so phrase "say" as a short question naming the concrete thing you will do: "Should I simplify this step?", "Cross off the eggs?", "Make the question bigger?".`;
 
 function parseInterpretation(raw) {
   const text = String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -49,13 +52,14 @@ function parseInterpretation(raw) {
     const parsed = JSON.parse(text);
     return {
       say: typeof parsed.say === 'string' ? parsed.say : text,
+      confidence: parsed.confidence === 'high' ? 'high' : 'normal',
       actions: Array.isArray(parsed.actions) ? parsed.actions.filter(a => typeof a === 'string') : [],
       edits: Array.isArray(parsed.edits)
         ? parsed.edits.filter(e => e && typeof e.target === 'string')
         : [],
     };
   } catch {
-    return { say: text.slice(0, 140), actions: [], edits: [] };
+    return { say: text.slice(0, 140), confidence: 'normal', actions: [], edits: [] };
   }
 }
 
@@ -238,8 +242,8 @@ wss.on('connection', (ws) => {
       interpretGesture(msg.payload || {})
         .then((r) => {
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
-          console.log(`[${tag}] "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
-          sendTo('display', { type: 'assistant', ai: true, say: r.say, actions: r.actions, edits: r.edits });
+          console.log(`[${tag}] (${r.confidence}) "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
+          sendTo('display', { type: 'assistant', ai: true, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits });
           sendTo('trackpad', { type: 'ack', action: r.say, hit: r.actions.length > 0 || r.edits.length > 0 });
         })
         .catch((err) => {

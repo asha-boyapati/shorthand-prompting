@@ -683,9 +683,25 @@
   }
 
   function doSwipe(dir) {
-    const sc = swipeCmd(dir);
     flash.className = dir === 'right' ? 'right show' : 'left show';
     setTimeout(() => { flash.className = ''; }, 450);
+    // a pending AI proposal captures the flick as yes/no
+    if (proposal) {
+      const p = proposal;
+      proposal = null;
+      clearTimeout(proposalTimer);
+      if (dir === 'right') {
+        applyAssistant(p.actions, p.edits);
+        showBubble('✓ done');
+        sendAck('Confirmed — done', true);
+      } else {
+        hideBubble();
+        showToast('okay, cancelled');
+        sendAck('Cancelled', false);
+      }
+      return;
+    }
+    const sc = swipeCmd(dir);
     if (sc && run(sc[0])) {
       showToast(sc[1]);
       sendAck(sc[1], true);
@@ -700,35 +716,44 @@
   }
 
   // ====================== drawing / circling ======================
-  let stroke = [];
+  // A "drawing" is one or more strokes made in quick succession (so an X,
+  // an arrow, or a question mark reads as one gesture). Interpretation
+  // fires after a short pause in drawing.
+  const STROKE_IDLE_MS = 900;
+  let strokes = [];   // completed strokes of the current drawing
+  let stroke = [];    // stroke in progress
   let fadeTimer = null;
+  let strokeIdleTimer = null;
 
-  function drawStroke() {
+  function drawStrokes() {
     inkCtx.clearRect(0, 0, W, H);
-    if (stroke.length < 2) return;
     inkCtx.strokeStyle = 'rgba(77, 210, 255, 0.9)';
     inkCtx.lineWidth = 3;
     inkCtx.lineCap = 'round';
     inkCtx.lineJoin = 'round';
     inkCtx.shadowColor = 'rgba(77, 210, 255, 0.8)';
     inkCtx.shadowBlur = 8;
-    inkCtx.beginPath();
-    inkCtx.moveTo(stroke[0].x, stroke[0].y);
-    for (let i = 1; i < stroke.length; i++) inkCtx.lineTo(stroke[i].x, stroke[i].y);
-    inkCtx.stroke();
+    for (const s of [...strokes, stroke]) {
+      if (s.length < 2) continue;
+      inkCtx.beginPath();
+      inkCtx.moveTo(s[0].x, s[0].y);
+      for (let i = 1; i < s.length; i++) inkCtx.lineTo(s[i].x, s[i].y);
+      inkCtx.stroke();
+    }
   }
 
   function clearInk(withFade) {
     clearTimeout(fadeTimer);
+    clearTimeout(strokeIdleTimer);
     if (withFade) {
       ink.classList.add('fade');
       fadeTimer = setTimeout(() => {
-        stroke = [];
+        strokes = []; stroke = [];
         inkCtx.clearRect(0, 0, W, H);
         ink.classList.remove('fade');
       }, 650);
     } else {
-      stroke = [];
+      strokes = []; stroke = [];
       inkCtx.clearRect(0, 0, W, H);
       ink.classList.remove('fade');
     }
@@ -739,17 +764,24 @@
     const x = Math.max(0, Math.min(W, (+msg.x || 0) * W));
     const y = Math.max(0, Math.min(H, (+msg.y || 0) * H));
     if (msg.phase === 'start') {
+      // a fading drawing was already interpreted - don't let its strokes
+      // rejoin the new drawing
+      if (ink.classList.contains('fade')) clearInk(false);
       clearTimeout(fadeTimer);
+      clearTimeout(strokeIdleTimer); // another stroke joins this drawing
       ink.classList.remove('fade');
       stroke = [{ x, y }];
-      drawStroke();
+      drawStrokes();
     } else if (msg.phase === 'move') {
       stroke.push({ x, y });
-      drawStroke();
+      drawStrokes();
     } else if (msg.phase === 'end') {
       stroke.push({ x, y });
-      drawStroke();
-      interpretStroke();
+      if (stroke.length >= 3) strokes.push(stroke);
+      stroke = [];
+      drawStrokes();
+      clearTimeout(strokeIdleTimer);
+      strokeIdleTimer = setTimeout(interpretStrokes, STROKE_IDLE_MS);
     }
   }
 
@@ -773,9 +805,7 @@
   let pending = null;      // { closed, hits: [{cmd, label, multi}] }
   let pendingTimer = null;
 
-  function interpretStroke() {
-    const pts = stroke;
-    if (pts.length < 8) { clearInk(true); return; }
+  function analyzeStroke(pts) {
     const L = strokeLength(pts);
     const gap = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y);
     // count x-direction reversals: a circle has ~2 per lap, a scribble many
@@ -789,16 +819,6 @@
     }
     const isScribble = revs >= 4 && L > 150;
     const closed = !isScribble && L > 110 && gap < Math.max(45, L * 0.25);
-
-    const rect = hud.getBoundingClientRect();
-    let minX = W, minY = H, maxX = 0, maxY = 0;
-    for (const p of pts) {
-      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
-    }
-    const loopCx = (minX + maxX) / 2, loopCy = (minY + maxY) / 2;
-
-    // --- classify the stroke's shape ---
     let shape = 'freeform';
     if (isScribble) {
       shape = 'scribble';
@@ -812,24 +832,47 @@
           : (ang > 62 && ang < 118) ? 'line-vertical' : 'line-diagonal';
       }
     }
+    let minX = W, minY = H, maxX = 0, maxY = 0, sumY = 0;
+    for (const p of pts) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+      sumY += p.y;
+    }
+    return { pts, L, closed, shape, minX, minY, maxX, maxY, avgY: sumY / pts.length };
+  }
 
-    // --- how the stroke relates to each element ---
-    const strokeAvgY = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+  function interpretStrokes() {
+    const an = strokes.filter((s) => s.length >= 8).map(analyzeStroke);
+    if (!an.length) { clearInk(true); return; }
+
+    const rect = hud.getBoundingClientRect();
+    const minX = Math.min(...an.map((a) => a.minX));
+    const minY = Math.min(...an.map((a) => a.minY));
+    const maxX = Math.max(...an.map((a) => a.maxX));
+    const maxY = Math.max(...an.map((a) => a.maxY));
+
+    // how the drawing (any of its strokes) relates to each element
     const flagsFor = (el) => {
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height) return { circled: false, crossed: false, underlined: false };
       const relL = r.left - rect.left, relT = r.top - rect.top;
       const midY = relT + r.height / 2;
-      const circled = closed && (
-        [0.12, 0.3, 0.5, 0.7, 0.88].some((f) => inPoly(relL + r.width * f, midY, pts)) ||
-        (loopCx >= relL && loopCx <= relL + r.width && loopCy >= relT && loopCy <= relT + r.height));
-      const inside = pts.reduce((n, p) =>
-        n + (p.x >= relL && p.x <= relL + r.width && p.y >= relT && p.y <= relT + r.height ? 1 : 0), 0);
-      const crossed = !closed && inside >= Math.min(6, Math.ceil(pts.length * 0.2));
-      const overlapX = Math.min(maxX, relL + r.width) - Math.max(minX, relL);
-      const underlined = shape === 'line-horizontal' && !crossed &&
-        overlapX > r.width * 0.4 &&
-        strokeAvgY > relT + r.height * 0.55 && strokeAvgY < relT + r.height + 16;
+      let circled = false, crossed = false, underlined = false;
+      for (const a of an) {
+        const loopCx = (a.minX + a.maxX) / 2, loopCy = (a.minY + a.maxY) / 2;
+        if (a.closed && (
+          [0.12, 0.3, 0.5, 0.7, 0.88].some((f) => inPoly(relL + r.width * f, midY, a.pts)) ||
+          (loopCx >= relL && loopCx <= relL + r.width && loopCy >= relT && loopCy <= relT + r.height))) {
+          circled = true;
+        }
+        const inside = a.pts.reduce((n, p) =>
+          n + (p.x >= relL && p.x <= relL + r.width && p.y >= relT && p.y <= relT + r.height ? 1 : 0), 0);
+        if (!a.closed && inside >= Math.min(6, Math.ceil(a.pts.length * 0.2))) crossed = true;
+        const overlapX = Math.min(a.maxX, relL + r.width) - Math.max(a.minX, relL);
+        if (a.shape === 'line-horizontal' && overlapX > r.width * 0.4 &&
+            a.avgY > relT + r.height * 0.55 && a.avgY < relT + r.height + 16) underlined = true;
+      }
+      if (crossed) underlined = false;
       return { circled, crossed, underlined };
     };
     const elements = [...card.querySelectorAll('[data-action]')].map((el) => ({
@@ -844,9 +887,10 @@
 
     // offline fallback: a circle selects circled things; a strike acts on
     // what it crossed through
+    const anyClosed = an.some((a) => a.closed);
     const circledHits = elements.filter((e) => e.circled);
     const crossedHits = elements.filter((e) => e.crossed);
-    pending = { closed, hits: circledHits.length ? circledHits : (closed ? [] : crossedHits) };
+    pending = { closed: anyClosed, hits: circledHits.length ? circledHits : (anyClosed ? [] : crossedHits) };
 
     if (ws && ws.readyState === WebSocket.OPEN) {
       showBubble('interpreting your drawing…', true);
@@ -854,17 +898,20 @@
       pendingTimer = setTimeout(() => localInterpret(), 12000);
       const payload = {
         screen,
-        stroke: {
-          shape,
-          closed,
-          points: pts.length,
-          length: Math.round(L),
+        drawing: {
+          strokes: an.map((a) => ({
+            shape: a.shape,
+            closed: a.closed,
+            points: a.pts.length,
+            length: Math.round(a.L),
+            bbox: { x: Math.round(a.minX), y: Math.round(a.minY), w: Math.round(a.maxX - a.minX), h: Math.round(a.maxY - a.minY) },
+          })),
           bbox: { x: Math.round(minX), y: Math.round(minY), w: Math.round(maxX - minX), h: Math.round(maxY - minY) },
         },
         elements: elements.map(({ label, cmd, circled, crossed, underlined }) => ({ label, cmd, circled, crossed, underlined })),
         contents,
       };
-      // screenshot the HUD (stroke included) so the model can see the drawing
+      // screenshot the HUD (strokes included) so the model can see the drawing
       captureHud().then((image) => {
         if (image) payload.image = image;
         clearInk(true);
@@ -893,13 +940,11 @@
     }
   }
 
-  function onAssistant(msg) {
-    if (!pending) return;
-    clearTimeout(pendingTimer);
-    if (!msg.ai) { localInterpret(); return; }
-    pending = null;
-    showBubble(msg.say || '…');
-    const actions = Array.isArray(msg.actions) ? msg.actions : [];
+  // An AI proposal awaiting the user's yes/no (flick right / left)
+  let proposal = null;
+  let proposalTimer = null;
+
+  function applyAssistant(actions, edits) {
     for (const cmd of actions) {
       const el = card.querySelector('[data-cmd="' + cmd + '"]');
       if (el) {
@@ -910,7 +955,6 @@
     }
     // corrective edits: rewrite or restyle the targeted part of the display
     // (applied after actions, since actions may re-render the card)
-    const edits = Array.isArray(msg.edits) ? msg.edits : [];
     for (const e of edits) {
       if (!e || typeof e.target !== 'string' || /["\\\]]/.test(e.target)) continue;
       const el = card.querySelector('[data-cmd="' + e.target + '"], [data-content="' + e.target + '"]');
@@ -922,6 +966,28 @@
       el.classList.add('circled');
       setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 900);
     }
+  }
+
+  function onAssistant(msg) {
+    if (!pending) return;
+    clearTimeout(pendingTimer);
+    if (!msg.ai) { localInterpret(); return; }
+    pending = null;
+    const actions = Array.isArray(msg.actions) ? msg.actions : [];
+    const edits = Array.isArray(msg.edits) ? msg.edits : [];
+
+    if ((actions.length || edits.length) && msg.confidence !== 'high') {
+      // the model proposes; the user confirms with a flick
+      proposal = { actions, edits };
+      clearTimeout(proposalTimer);
+      proposalTimer = setTimeout(() => {
+        if (proposal) { proposal = null; hideBubble(); showToast('suggestion expired'); }
+      }, 15000);
+      showBubble(msg.say || 'Should I do that?', false, true);
+      return;
+    }
+    showBubble(msg.say || '…');
+    applyAssistant(actions, edits);
   }
 
   function localInterpret() {
@@ -965,13 +1031,14 @@
   }
 
   let bubbleTimer = null;
-  function showBubble(text, thinking) {
+  function showBubble(text, thinking, sticky) {
     bubble.innerHTML = '<span class="who">✨ assistant</span>' +
-      String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;') +
+      (sticky ? '<br><span style="color:var(--muted);font-size:11px;">flick right = yes · flick left = no</span>' : '');
     bubble.classList.toggle('thinking', !!thinking);
     bubble.classList.add('show');
     clearTimeout(bubbleTimer);
-    if (!thinking) bubbleTimer = setTimeout(hideBubble, 4500);
+    if (!thinking && !sticky) bubbleTimer = setTimeout(hideBubble, 4500);
   }
   function hideBubble() {
     clearTimeout(bubbleTimer);
