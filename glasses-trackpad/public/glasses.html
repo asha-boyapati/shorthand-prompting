@@ -133,6 +133,15 @@
   .score-line .m { color: var(--red); }
   .score-line .s { color: var(--amber); }
 
+  /* AI corrective-edit styles */
+  .ai-emphasize {
+    font-size: 1.25em !important;
+    color: var(--hud-glow) !important;
+    text-shadow: 0 0 12px rgba(77, 210, 255, 0.6);
+  }
+  .ai-dim { opacity: 0.35; }
+  .ai-strike { text-decoration: line-through; opacity: 0.6; }
+
   [data-action].hud-hover {
     outline: 2px solid var(--hud-glow);
     outline-offset: -2px;
@@ -221,6 +230,8 @@
 </style>
 </head>
 <body>
+
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
 <div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span></div>
 
@@ -392,8 +403,8 @@
       '<div class="head"><span>QUIZ · ' + (qz.pos + 1) + '/' + qz.queue.length + '</span>' +
         '<span class="chip ' + q.cls + '">' + q.topic + '</span></div>' +
       '<div class="center">' +
-        '<div class="bigq">' + q.text + '</div>' +
-        '<div class="biganswer ' + (qz.revealed ? '' : 'hidden') + '">' + q.answer + '</div>' +
+        '<div class="bigq" data-content="quiz-question">' + q.text + '</div>' +
+        '<div class="biganswer ' + (qz.revealed ? '' : 'hidden') + '" data-content="quiz-answer">' + q.answer + '</div>' +
         '<div class="hint">swipe right = got it · swipe left = missed it</div>' +
       '</div>' +
       '<div class="pillrow">' + btns + homeBtn() + '</div>';
@@ -438,7 +449,7 @@
       '<div class="head"><span>COOKING · step ' + (ck.step + 1) + '/' + STEPS.length + '</span>' +
         '<span class="chip task">Carbonara</span></div>' +
       '<div class="center">' +
-        '<div class="steptext">' + s.text + '</div>' + timerHtml +
+        '<div class="steptext" data-content="cook-step">' + s.text + '</div>' + timerHtml +
         '<div class="hint">swipe right = next · swipe left = back</div>' +
       '</div>' +
       '<div class="pillrow">' +
@@ -465,14 +476,14 @@
     }
     const idea = IDEAS[id8.pos];
     const details = id8.expanded
-      ? '<ul class="details">' + idea.details.map(d => '<li>' + d + '</li>').join('') + '</ul>'
+      ? '<ul class="details" data-content="idea-details">' + idea.details.map(d => '<li>' + d + '</li>').join('') + '</ul>'
       : '';
     card.innerHTML =
       '<div class="head"><span>IDEATION · ' + (id8.pos + 1) + '/' + IDEAS.length + '</span>' +
         '<span class="chip task">Hackathon</span></div>' +
       '<div class="scrollable center" id="scrollable">' +
-        '<div class="idea-title">' + idea.title + '</div>' +
-        '<div class="idea-tag">' + idea.tag + '</div>' +
+        '<div class="idea-title" data-content="idea-title">' + idea.title + '</div>' +
+        '<div class="idea-tag" data-content="idea-tagline">' + idea.tag + '</div>' +
         '<div class="tags">' + idea.tags.map(t => '<span class="chip">' + t + '</span>').join('') + '</div>' +
         details +
         '<div class="hint">swipe right = shortlist · swipe left = discard</div>' +
@@ -776,44 +787,71 @@
       maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
     }
     const loopCx = (minX + maxX) / 2, loopCy = (minY + maxY) / 2;
-    const elements = [...card.querySelectorAll('[data-action]')].map((el) => {
+    const regionCircled = (el) => {
       const r = el.getBoundingClientRect();
-      let circled = false;
-      if (closed && r.width && r.height) {
-        const relL = r.left - rect.left, relT = r.top - rect.top;
-        // sample across the element's width: circling just the label text of a
-        // full-width row still counts
-        const midY = relT + r.height / 2;
-        circled = [0.12, 0.3, 0.5, 0.7, 0.88].some((f) => inPoly(relL + r.width * f, midY, pts))
-          // or a small loop drawn on top of a larger element
-          || (loopCx >= relL && loopCx <= relL + r.width && loopCy >= relT && loopCy <= relT + r.height);
-      }
-      return { label: el.dataset.action, cmd: el.dataset.cmd, multi: el.dataset.multi === '1', circled };
-    });
+      if (!closed || !r.width || !r.height) return false;
+      const relL = r.left - rect.left, relT = r.top - rect.top;
+      // sample across the element's width: circling just the label text of a
+      // full-width row still counts
+      const midY = relT + r.height / 2;
+      return [0.12, 0.3, 0.5, 0.7, 0.88].some((f) => inPoly(relL + r.width * f, midY, pts))
+        // or a small loop drawn on top of a larger element
+        || (loopCx >= relL && loopCx <= relL + r.width && loopCy >= relT && loopCy <= relT + r.height);
+    };
+    const elements = [...card.querySelectorAll('[data-action]')].map((el) => ({
+      label: el.dataset.action, cmd: el.dataset.cmd,
+      multi: el.dataset.multi === '1', circled: regionCircled(el),
+    }));
+    const contents = [...card.querySelectorAll('[data-content]')].map((el) => ({
+      id: el.dataset.content,
+      text: el.textContent.trim().slice(0, 200),
+      circled: regionCircled(el),
+    }));
 
     pending = { closed, hits: elements.filter((e) => e.circled) };
 
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'interpret',
-        payload: {
-          screen,
-          stroke: {
-            closed,
-            points: pts.length,
-            length: Math.round(L),
-            bbox: { x: Math.round(minX), y: Math.round(minY), w: Math.round(maxX - minX), h: Math.round(maxY - minY) },
-          },
-          elements: elements.map(({ label, cmd, circled }) => ({ label, cmd, circled })),
-        },
-      }));
       showBubble('interpreting your drawing…', true);
       clearTimeout(pendingTimer);
-      pendingTimer = setTimeout(() => localInterpret(), 8000);
+      pendingTimer = setTimeout(() => localInterpret(), 12000);
+      const payload = {
+        screen,
+        stroke: {
+          closed,
+          points: pts.length,
+          length: Math.round(L),
+          bbox: { x: Math.round(minX), y: Math.round(minY), w: Math.round(maxX - minX), h: Math.round(maxY - minY) },
+        },
+        elements: elements.map(({ label, cmd, circled }) => ({ label, cmd, circled })),
+        contents,
+      };
+      // screenshot the HUD (stroke included) so the model can see the drawing
+      captureHud().then((image) => {
+        if (image) payload.image = image;
+        clearInk(true);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'interpret', payload }));
+        } else {
+          localInterpret();
+        }
+      });
     } else {
       localInterpret();
+      clearInk(true);
     }
-    clearInk(true);
+  }
+
+  async function captureHud() {
+    try {
+      if (!window.html2canvas) return null;
+      const canvas = await Promise.race([
+        html2canvas(hud, { backgroundColor: '#0d1117', logging: false }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 2000)),
+      ]);
+      return canvas ? canvas.toDataURL('image/jpeg', 0.7) : null;
+    } catch {
+      return null;
+    }
   }
 
   function onAssistant(msg) {
@@ -830,6 +868,20 @@
         setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
       }
       run(cmd);
+    }
+    // corrective edits: rewrite or restyle the targeted part of the display
+    // (applied after actions, since actions may re-render the card)
+    const edits = Array.isArray(msg.edits) ? msg.edits : [];
+    for (const e of edits) {
+      if (!e || typeof e.target !== 'string' || /["\\\]]/.test(e.target)) continue;
+      const el = card.querySelector('[data-cmd="' + e.target + '"], [data-content="' + e.target + '"]');
+      if (!el) continue;
+      if (typeof e.text === 'string' && e.text) el.textContent = e.text;
+      if (e.style === 'emphasize') el.classList.add('ai-emphasize');
+      else if (e.style === 'dim') el.classList.add('ai-dim');
+      else if (e.style === 'strike') el.classList.add('ai-strike');
+      el.classList.add('circled');
+      setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 900);
     }
   }
 

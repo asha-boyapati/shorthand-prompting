@@ -22,12 +22,19 @@ const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearabl
 The user wears glasses with a small HUD and draws strokes on a wrist trackpad. You receive JSON describing:
 - screen: which app screen is showing
 - stroke: geometry summary (closed loop or open stroke, length, bounding box in the 480x400 HUD)
-- elements: the actionable UI elements, each with its label, its machine cmd, and circled=true if the stroke enclosed it
+- elements: actionable UI elements (label, machine cmd, circled=true if the stroke enclosed it)
+- contents: non-interactive display text regions (id, current text, circled)
+A screenshot of the HUD with the glowing stroke drawn on it may also be attached - use it to see the exact shape and placement of the drawing.
 
-Infer the user's intent. Respond with ONLY compact JSON, no markdown fences:
-{"say": "<one short friendly sentence to show the user>", "actions": ["<cmd>", ...]}
-Each action must be a cmd copied EXACTLY from the elements list; use [] when no action is clearly intended.
-Rules of thumb: a loop around elements usually means select/activate them; a loop around several checklist items means toggle them all; an open stroke through or under an element may mean emphasis or dismissal - use judgment; if intent is ambiguous, return [] and ask a brief clarifying question in "say".`;
+Gestures are either INTERACTIVE (select/activate something) or CORRECTIVE (change how a circled part is displayed: rephrase it, simplify it, translate it, emphasize it, de-emphasize it, cross it out).
+
+Respond with ONLY compact JSON, no markdown fences:
+{"say": "<one short friendly sentence to show the user>",
+ "actions": ["<cmd>", ...],
+ "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)"}]}
+- actions: for interactive intent; each cmd copied EXACTLY from elements
+- edits: for corrective intent; target copied EXACTLY from elements' cmd or contents' id
+Rules of thumb: a loop around buttons/checklist items usually means activate/toggle them; a loop around content text usually means a corrective request (simplify or emphasize it - judge from context); a line through something means cross it out or dismiss; if intent is ambiguous, return empty arrays and ask a brief clarifying question in "say".`;
 
 function parseInterpretation(raw) {
   const text = String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -36,21 +43,39 @@ function parseInterpretation(raw) {
     return {
       say: typeof parsed.say === 'string' ? parsed.say : text,
       actions: Array.isArray(parsed.actions) ? parsed.actions.filter(a => typeof a === 'string') : [],
+      edits: Array.isArray(parsed.edits)
+        ? parsed.edits.filter(e => e && typeof e.target === 'string')
+        : [],
     };
   } catch {
-    return { say: text.slice(0, 140), actions: [] };
+    return { say: text.slice(0, 140), actions: [], edits: [] };
   }
 }
 
+// Split a payload into {text parts, image} - the screenshot travels as a
+// proper image attachment, not inside the JSON.
+function splitPayload(payload) {
+  const { image, ...rest } = payload || {};
+  const m = typeof image === 'string' ? image.match(/^data:(image\/\w+);base64,(.+)$/) : null;
+  return { json: JSON.stringify(rest), mediaType: m ? m[1] : null, b64: m ? m[2] : null, dataUrl: m ? image : null };
+}
+
 async function interpretWithClaude(payload) {
+  const p = splitPayload(payload);
+  const content = p.b64
+    ? [
+        { type: 'image', source: { type: 'base64', media_type: p.mediaType, data: p.b64 } },
+        { type: 'text', text: p.json },
+      ]
+    : p.json;
   const response = await claude.beta.messages.create({
     model: CLAUDE_MODEL,
-    max_tokens: 300,
+    max_tokens: 400,
     output_config: { effort: 'low' },
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     system: INTERPRET_SYSTEM,
-    messages: [{ role: 'user', content: JSON.stringify(payload) }],
+    messages: [{ role: 'user', content }],
   });
   if (response.stop_reason === 'refusal') {
     throw new Error('model declined the request');
@@ -65,6 +90,13 @@ async function interpretWithClaude(payload) {
 // Alternative backend: OpenAI (set OPENAI_API_KEY; override model with OPENAI_MODEL)
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 async function interpretWithOpenAI(payload) {
+  const p = splitPayload(payload);
+  const userContent = p.dataUrl
+    ? [
+        { type: 'text', text: p.json },
+        { type: 'image_url', image_url: { url: p.dataUrl } },
+      ]
+    : p.json;
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -73,11 +105,11 @@ async function interpretWithOpenAI(payload) {
     },
     body: JSON.stringify({
       model: OPENAI_MODEL,
-      max_completion_tokens: 300,
+      max_completion_tokens: 400,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: INTERPRET_SYSTEM },
-        { role: 'user', content: JSON.stringify(payload) },
+        { role: 'user', content: userContent },
       ],
     }),
   });
@@ -198,9 +230,10 @@ wss.on('connection', (ws) => {
       const tag = USE_OPENAI ? 'openai' : 'claude';
       interpretGesture(msg.payload || {})
         .then((r) => {
-          console.log(`[${tag}] "${r.say}" actions=[${r.actions.join(', ')}]`);
-          sendTo('display', { type: 'assistant', ai: true, say: r.say, actions: r.actions });
-          sendTo('trackpad', { type: 'ack', action: r.say, hit: r.actions.length > 0 });
+          const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
+          console.log(`[${tag}] "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
+          sendTo('display', { type: 'assistant', ai: true, say: r.say, actions: r.actions, edits: r.edits });
+          sendTo('trackpad', { type: 'ack', action: r.say, hit: r.actions.length > 0 || r.edits.length > 0 });
         })
         .catch((err) => {
           if (err.fatalAuth ||
