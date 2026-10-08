@@ -270,12 +270,7 @@
     { id: 'quiz',      text: 'Quiz me on addition and multiplication', ready: true },
     { id: 'cook',      text: 'Help me cook pasta carbonara',           ready: true },
     { id: 'ideate',    text: 'Help me brainstorm hackathon project ideas', ready: true },
-    { id: 'workout',   text: 'Walk me through a quick morning workout' },
     { id: 'translate', text: 'Translate what I’m looking at to Spanish' },
-    { id: 'messages',  text: 'Summarize my unread messages' },
-    { id: 'navigate',  text: 'Navigate me to the nearest coffee shop' },
-    { id: 'debug',     text: 'Help me debug my code' },
-    { id: 'calendar',  text: 'What’s on my calendar today?' },
     { id: 'guitar',    text: 'Teach me basic guitar chords' },
   ];
 
@@ -376,7 +371,7 @@
       (p.ready ? '' : ' <span style="margin-left:auto;font-size:10px;color:var(--border);">soon</span>') +
       '</div>').join('');
     card.innerHTML =
-      '<div class="head"><span>ASSISTANT · what do you want to do?</span><span class="chip task">10 prompts</span></div>' +
+      '<div class="head"><span>ASSISTANT · what do you want to do?</span><span class="chip task">' + PROMPTS.length + ' prompts</span></div>' +
       '<div class="scrollable" id="scrollable">' + rows + '</div>' +
       '<div class="hint" style="padding-top:6px;">tap a prompt · or circle one in draw mode</div>';
   }
