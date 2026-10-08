@@ -775,11 +775,19 @@
       minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
       maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
     }
+    const loopCx = (minX + maxX) / 2, loopCy = (minY + maxY) / 2;
     const elements = [...card.querySelectorAll('[data-action]')].map((el) => {
       const r = el.getBoundingClientRect();
-      const ex = r.left - rect.left + r.width / 2;
-      const ey = r.top - rect.top + r.height / 2;
-      const circled = !!(r.width && r.height) && closed && inPoly(ex, ey, pts);
+      let circled = false;
+      if (closed && r.width && r.height) {
+        const relL = r.left - rect.left, relT = r.top - rect.top;
+        // sample across the element's width: circling just the label text of a
+        // full-width row still counts
+        const midY = relT + r.height / 2;
+        circled = [0.12, 0.3, 0.5, 0.7, 0.88].some((f) => inPoly(relL + r.width * f, midY, pts))
+          // or a small loop drawn on top of a larger element
+          || (loopCx >= relL && loopCx <= relL + r.width && loopCy >= relT && loopCy <= relT + r.height);
+      }
       return { label: el.dataset.action, cmd: el.dataset.cmd, multi: el.dataset.multi === '1', circled };
     });
 
