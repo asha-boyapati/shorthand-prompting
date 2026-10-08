@@ -8,6 +8,55 @@ const path = require('path');
 const os = require('os');
 const { WebSocketServer, WebSocket } = require('ws');
 
+// --- optional Claude-powered gesture interpretation -----------------------
+// With an API key (env ANTHROPIC_API_KEY), freeform drawings are sent to
+// Claude along with screen context, and Claude decides what the user meant.
+// Without one, the display falls back to its built-in circle rules.
+const sdkModule = require('@anthropic-ai/sdk');
+const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
+let claude = new Anthropic();
+const CLAUDE_MODEL = 'claude-opus-5-5';
+
+const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
+The user wears glasses with a small HUD and draws strokes on a wrist trackpad. You receive JSON describing:
+- screen: which app screen is showing
+- stroke: geometry summary (closed loop or open stroke, length, bounding box in the 480x400 HUD)
+- elements: the actionable UI elements, each with its label, its machine cmd, and circled=true if the stroke enclosed it
+
+Infer the user's intent. Respond with ONLY compact JSON, no markdown fences:
+{"say": "<one short friendly sentence to show the user>", "actions": ["<cmd>", ...]}
+Each action must be a cmd copied EXACTLY from the elements list; use [] when no action is clearly intended.
+Rules of thumb: a loop around elements usually means select/activate them; a loop around several checklist items means toggle them all; an open stroke through or under an element may mean emphasis or dismissal - use judgment; if intent is ambiguous, return [] and ask a brief clarifying question in "say".`;
+
+async function interpretGesture(payload) {
+  const response = await claude.beta.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 300,
+    output_config: { effort: 'low' },
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    system: INTERPRET_SYSTEM,
+    messages: [{ role: 'user', content: JSON.stringify(payload) }],
+  });
+  if (response.stop_reason === 'refusal') {
+    throw new Error('model declined the request');
+  }
+  let text = '';
+  for (const block of response.content) {
+    if (block.type === 'text') text += block.text;
+  }
+  text = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      say: typeof parsed.say === 'string' ? parsed.say : text,
+      actions: Array.isArray(parsed.actions) ? parsed.actions.filter(a => typeof a === 'string') : [],
+    };
+  } catch {
+    return { say: text.slice(0, 140), actions: [] };
+  }
+}
+
 const PORT = process.env.PORT || 8080;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -98,6 +147,33 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // Displays ask the server to interpret a drawing with Claude.
+    if (client.role === 'display' && msg.type === 'interpret') {
+      if (!claude) {
+        sendTo('display', { type: 'assistant', ai: false });
+        return;
+      }
+      interpretGesture(msg.payload || {})
+        .then((r) => {
+          console.log(`[claude] "${r.say}" actions=[${r.actions.join(', ')}]`);
+          sendTo('display', { type: 'assistant', ai: true, say: r.say, actions: r.actions });
+          sendTo('trackpad', { type: 'ack', action: r.say, hit: r.actions.length > 0 });
+        })
+        .catch((err) => {
+          if (err instanceof Anthropic.AuthenticationError ||
+              /authentication method|api key/i.test(err.message || '')) {
+            console.log('[claude] invalid or missing API key - falling back to local rules from now on');
+            claude = null;
+          } else if (err instanceof Anthropic.RateLimitError) {
+            console.log('[claude] rate limited - using local rules for this gesture');
+          } else {
+            console.log('[claude] interpretation failed:', err.message);
+          }
+          sendTo('display', { type: 'assistant', ai: false });
+        });
+      return;
+    }
+
     // Relay gestures from trackpads to displays, acks from displays back.
     if (client.role === 'trackpad') {
       sendTo('display', msg);
@@ -135,5 +211,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  GitHub mock (laptop):      http://localhost:${PORT}/display`);
   console.log(`  Quiz only (laptop):        http://localhost:${PORT}/quiz`);
   console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad`);
+  const hasCreds = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+  console.log(hasCreds
+    ? `  Claude drawing interpretation: ON (${CLAUDE_MODEL})`
+    : '  Claude drawing interpretation: no ANTHROPIC_API_KEY found - will try anyway, falls back to local circle rules');
   console.log('');
 });

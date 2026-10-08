@@ -195,6 +195,29 @@
     white-space: nowrap; max-width: 440px; overflow: hidden; text-overflow: ellipsis;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Claude's interpretation of a drawing */
+  #bubble {
+    position: absolute;
+    left: 50%; top: 14px;
+    transform: translateX(-50%) translateY(-16px);
+    background: rgba(13, 17, 23, 0.95);
+    border: 1px solid var(--amber);
+    color: var(--text);
+    padding: 9px 16px;
+    border-radius: 14px;
+    font-size: 13px;
+    line-height: 1.4;
+    max-width: 420px;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    z-index: 31;
+    pointer-events: none;
+  }
+  #bubble.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #bubble .who { color: var(--amber); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; display: block; margin-bottom: 2px; }
+  #bubble.thinking { border-color: var(--border); color: var(--muted); }
 </style>
 </head>
 <body>
@@ -207,6 +230,7 @@
   <div id="flash"></div>
   <div id="cursor" class="hidden"></div>
   <div id="toast"></div>
+  <div id="bubble"></div>
 </div>
 
 <script>
@@ -218,6 +242,7 @@
   const inkCtx = ink.getContext('2d');
   const cursor = document.getElementById('cursor');
   const toast = document.getElementById('toast');
+  const bubble = document.getElementById('bubble');
   const flash = document.getElementById('flash');
   const statusbar = document.getElementById('statusbar');
   const statustext = document.getElementById('statustext');
@@ -599,6 +624,7 @@
       case 'swipe': doSwipe(msg.dir); break;
       case 'scroll': doScroll(+msg.dy || 0); break;
       case 'draw': doDraw(msg); break;
+      case 'assistant': onAssistant(msg); break;
       case 'mode':
         cursor.classList.toggle('pen', msg.mode === 'draw');
         showToast(msg.mode === 'draw' ? '✎ draw mode' : '○ cursor mode');
@@ -730,59 +756,127 @@
     return inside;
   }
 
+  // After a stroke ends we ask the server to interpret it with Claude.
+  // If the server has no API key (or errors / times out), we fall back to
+  // the local circle rules below.
+  let pending = null;      // { closed, hits: [{cmd, label, multi}] }
+  let pendingTimer = null;
+
   function interpretStroke() {
     const pts = stroke;
     if (pts.length < 8) { clearInk(true); return; }
     const L = strokeLength(pts);
     const gap = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y);
     const closed = L > 110 && gap < Math.max(45, L * 0.25);
-    if (!closed) {
-      // open stroke: just an annotation for now
-      showToast('✎ drawing noted (not a circle)');
-      sendAck('drawing noted', false);
-      clearInk(true);
-      return;
-    }
-    // circling: find actionable elements whose centers fall inside the loop
+
     const rect = hud.getBoundingClientRect();
-    const hits = [...card.querySelectorAll('[data-action]')].filter((el) => {
+    let minX = W, minY = H, maxX = 0, maxY = 0;
+    for (const p of pts) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    }
+    const elements = [...card.querySelectorAll('[data-action]')].map((el) => {
       const r = el.getBoundingClientRect();
-      if (!r.width || !r.height) return false;
       const ex = r.left - rect.left + r.width / 2;
       const ey = r.top - rect.top + r.height / 2;
-      return inPoly(ex, ey, pts);
+      const circled = !!(r.width && r.height) && closed && inPoly(ex, ey, pts);
+      return { label: el.dataset.action, cmd: el.dataset.cmd, multi: el.dataset.multi === '1', circled };
     });
 
+    pending = { closed, hits: elements.filter((e) => e.circled) };
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'interpret',
+        payload: {
+          screen,
+          stroke: {
+            closed,
+            points: pts.length,
+            length: Math.round(L),
+            bbox: { x: Math.round(minX), y: Math.round(minY), w: Math.round(maxX - minX), h: Math.round(maxY - minY) },
+          },
+          elements: elements.map(({ label, cmd, circled }) => ({ label, cmd, circled })),
+        },
+      }));
+      showBubble('interpreting your drawing…', true);
+      clearTimeout(pendingTimer);
+      pendingTimer = setTimeout(() => localInterpret(), 8000);
+    } else {
+      localInterpret();
+    }
+    clearInk(true);
+  }
+
+  function onAssistant(msg) {
+    if (!pending) return;
+    clearTimeout(pendingTimer);
+    if (!msg.ai) { localInterpret(); return; }
+    pending = null;
+    showBubble(msg.say || '…');
+    const actions = Array.isArray(msg.actions) ? msg.actions : [];
+    for (const cmd of actions) {
+      const el = card.querySelector('[data-cmd="' + cmd + '"]');
+      if (el) {
+        el.classList.add('circled');
+        setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
+      }
+      run(cmd);
+    }
+  }
+
+  function localInterpret() {
+    if (!pending) return;
+    const { closed, hits } = pending;
+    pending = null;
+    hideBubble();
+    if (!closed) {
+      showToast('✎ drawing noted (not a circle)');
+      sendAck('drawing noted', false);
+      return;
+    }
+    const flashEl = (cmd) => {
+      const el = card.querySelector('[data-cmd="' + cmd + '"]');
+      if (el) {
+        el.classList.add('circled');
+        setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
+      }
+    };
     if (hits.length === 0) {
       showToast('circled nothing');
       sendAck('circled nothing', false);
     } else if (hits.length === 1) {
-      hits[0].classList.add('circled');
-      const el = hits[0];
-      setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
-      if (run(el.dataset.cmd)) {
-        showToast('○ ' + el.dataset.action);
-        sendAck('Circled: ' + el.dataset.action, true);
+      flashEl(hits[0].cmd);
+      if (run(hits[0].cmd)) {
+        showToast('○ ' + hits[0].label);
+        sendAck('Circled: ' + hits[0].label, true);
       }
     } else {
-      // several things circled: act on them only if they're multi-selectable
-      const multi = hits.filter((el) => el.dataset.multi === '1');
-      hits.forEach((el) => {
-        el.classList.add('circled');
-        setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
-      });
+      const multi = hits.filter((h) => h.multi);
+      hits.forEach((h) => flashEl(h.cmd));
       if (multi.length === hits.length) {
-        multi.forEach((el) => run(el.dataset.cmd));
-        const names = multi.map((el) => el.dataset.action).join(', ');
+        multi.forEach((h) => run(h.cmd));
         showToast('○ ' + multi.length + ' selected');
-        sendAck('Circled: ' + names, true);
+        sendAck('Circled: ' + multi.map((h) => h.label).join(', '), true);
       } else {
-        const names = hits.map((el) => el.dataset.action).join(', ');
         showToast('circled ' + hits.length + ' things — ambiguous, tap one');
-        sendAck('Ambiguous circle: ' + names, false);
+        sendAck('Ambiguous circle: ' + hits.map((h) => h.label).join(', '), false);
       }
     }
-    clearInk(true);
+  }
+
+  let bubbleTimer = null;
+  function showBubble(text, thinking) {
+    bubble.innerHTML = '<span class="who">✨ assistant</span>' +
+      String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    bubble.classList.toggle('thinking', !!thinking);
+    bubble.classList.add('show');
+    clearTimeout(bubbleTimer);
+    if (!thinking) bubbleTimer = setTimeout(hideBubble, 4500);
+  }
+  function hideBubble() {
+    clearTimeout(bubbleTimer);
+    bubble.classList.remove('show', 'thinking');
   }
 
   function showToast(text) {
