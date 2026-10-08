@@ -22,7 +22,9 @@ const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearabl
 The user wears glasses with a small HUD and draws strokes on a wrist trackpad. You receive JSON describing:
 - screen: which app screen is showing
 - mode: the user's declared drawing intent, chosen on the trackpad:
-  "interact" = the drawing is INPUT to the app: select, activate, answer, navigate. The user may also HANDWRITE words or numbers - read the handwriting in the screenshot. A written answer to the on-screen question means they are answering it (check it: if right, say so and use the matching action, e.g. got-it; if wrong, say the correct answer). Written "yes"/"no" answers your previous question.
+  "interact" = the drawing is INPUT to the app. FIRST decide from the screenshot whether the drawing is HANDWRITING (letters, words, numbers) or a gesture; drawing.looksLikeWriting is a geometric hint, but the screenshot is the truth.
+    If it is handwriting: transcribe it and treat the text as something the user just SAID to you. The circled/crossed/underlined flags are then meaningless artifacts of writing on top of the UI - IGNORE them completely (writing "tools" across the ingredient list is a question about tools, NOT a request to cross off ingredients). Respond to the meaning in the screen's context: a written answer to the on-screen question means they are answering it (check it: if right, say so and use the matching action; if wrong, say the correct answer); "yes"/"no" answers your previous question; any other written word or phrase is a request or query (e.g. "tools" while cooking -> briefly list the tools the recipe needs). For written queries an informative "say" with empty actions is a GOOD response - the act-first rule below applies to gestures, not writing.
+    If it is a gesture: select, activate, answer, navigate per the vocabulary below.
   "correct" = the drawing critiques the DISPLAY itself: the marked part is a feature they want changed. Propose changing, rewriting, moving or hiding it (edits), or use a matching extraCommand (e.g. circling the quiz topic chip -> offer to switch the quiz to one topic, or to hide the chip with style dim). Do not treat marks as app input in this mode.
 - extraCommands: additional cmds that are valid in "actions" but have no on-screen element (each with a description)
 - drawing: one or more strokes made in quick succession (a complex drawing - an X, an arrow, a question mark, a letter - spans several strokes; interpret them TOGETHER as one gesture). Each stroke has a shape guess (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length and bounding box in the 480x400 HUD; the shape guesses are crude, trust the screenshot over them for multi-stroke drawings
@@ -39,14 +41,14 @@ Gesture vocabulary (defaults, override with judgment and the screenshot):
 - other shapes (arrow, question mark, check): judge from the screenshot; a check often means confirm/next, a question mark means explain (use "say" plus an edit if helpful)
 
 Respond with ONLY compact JSON, no markdown fences:
-{"say": "<one short sentence to show the user>",
+{"say": "<one or two short sentences to show the user>",
  "confidence": "high" | "normal",
  "actions": ["<cmd>", ...],
  "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)"}]}
 - actions: for interactive intent; each cmd copied EXACTLY from elements
 - edits: for corrective intent; target copied EXACTLY from elements' cmd or contents' id
 
-ALWAYS make your best guess at a concrete action or edit - never return empty actions AND empty edits unless the drawing touches nothing recognizable at all.
+For GESTURES, always make your best guess at a concrete action or edit - never return empty actions AND empty edits unless the drawing touches nothing recognizable at all. (Handwritten queries are exempt: answering them in "say" is enough.)
 confidence "high" = the intent is unmistakable (e.g. a plain circle around one button or checklist item); your actions/edits run immediately and "say" states what you did.
 confidence "normal" = everything else; the glasses show your proposal and the user confirms with a flick, so phrase "say" as a short question naming the concrete thing you will do: "Should I simplify this step?", "Cross off the eggs?", "Make the question bigger?".`;
 
@@ -243,6 +245,8 @@ wss.on('connection', (ws) => {
         return;
       }
       const tag = USE_OPENAI ? 'openai' : 'claude';
+      const hasImg = !!(msg.payload && msg.payload.image);
+      if (!hasImg) console.log(`[${tag}] note: no screenshot attached (html2canvas missing or capture failed)`);
       interpretGesture(msg.payload || {})
         .then((r) => {
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');

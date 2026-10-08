@@ -941,6 +941,12 @@
           { cmd: 'quiz:mixed', desc: 'restart the quiz with mixed topics' },
         ] : [],
         drawing: {
+          // several short strokes (or one wide scribble) usually means the
+          // user is WRITING, not gesturing
+          looksLikeWriting:
+            (an.length >= 2 && an.map((a) => a.L).sort((x, y) => x - y)[Math.floor(an.length / 2)] < 200) ||
+            (an.length === 1 && an[0].shape === 'scribble' &&
+              (an[0].maxX - an[0].minX) > (an[0].maxY - an[0].minY) * 1.5),
           strokes: an.map((a) => ({
             shape: a.shape,
             closed: a.closed,
@@ -973,10 +979,11 @@
     try {
       if (!window.html2canvas) return null;
       const canvas = await Promise.race([
-        html2canvas(hud, { backgroundColor: '#0d1117', logging: false }),
-        new Promise((resolve) => setTimeout(() => resolve(null), 2000)),
+        // scale 2 so small handwriting stays legible to the model
+        html2canvas(hud, { backgroundColor: '#0d1117', logging: false, scale: 2 }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
       ]);
-      return canvas ? canvas.toDataURL('image/jpeg', 0.7) : null;
+      return canvas ? canvas.toDataURL('image/jpeg', 0.75) : null;
     } catch {
       return null;
     }
