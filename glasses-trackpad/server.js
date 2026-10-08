@@ -16,6 +16,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
+const PROMPT_VERSION = 8; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -28,14 +29,15 @@ The user wears glasses with a small HUD and draws strokes on a wrist trackpad. Y
   "correct" = the drawing critiques the DISPLAY itself: the marked part is a feature they want changed or explained. Propose changing, rewriting, moving or hiding it (edits), explain it (a "note" edit), or use a matching extraCommand (e.g. circling the quiz topic chip -> offer to switch the quiz to one topic, or to hide the chip with style dim). Do not treat marks as app input in this mode.
 - extraCommands: additional cmds that are valid in "actions" but have no on-screen element (each with a description)
 - drawing: one or more strokes made in quick succession (a complex drawing - an X, an arrow, a question mark, a letter - spans several strokes; interpret them TOGETHER as one gesture). Each stroke has a shape guess (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length and bounding box in the 480x400 HUD; the shape guesses are crude, trust the screenshot over them for multi-stroke drawings
-- elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined by the drawing)
+- elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined / touched by the drawing)
 - contents: non-interactive display text regions (id, current text, same flags)
+  (touched = the stroke made a small mark on it without clearly circling or striking it - treat it like a single-item circle: the user is pointing at it)
 A screenshot of the HUD with the glowing drawing on it may also be attached - use it to see the exact shape and placement.
 
 Gestures are either INTERACTIVE (select/activate something) or CORRECTIVE (change how a part is displayed).
 Gesture vocabulary (defaults, override with judgment and the screenshot):
 - CIRCLES: the trackpad already has a TAP for plain selection, so a circle is a richer mark - it means "tell me more about this / do something smart with this", not "click this".
-  * ONE item circled (an ingredient, a term, a question, a line, a title): EXPAND on it - what it is, context, a tip, a substitute, why it matters. Put 1-2 sentences in "say" and pin the same or fuller text under the item with an edits "note". This is harmless: confidence "high", answer directly. Do NOT ask "Should I select ...?" and do NOT toggle it unless the context makes selection the only sensible goal.
+  * ONE item circled or touched (an ingredient, a term, a question, a line, a title): EXPAND on it - what it is, where you'd get it, varieties, a tip, a substitute, why it matters. Put 1-2 sentences in "say", pin a fuller 2-3 sentence version under the item with an edits "note", and you may end "say" by offering more (e.g. "Want buying tips or substitutes?" - they can write yes or draw again). This is harmless: confidence "high", answer directly. Do NOT ask "Should I select ...?", do NOT ask "Should I cross ... off?", and do NOT toggle it unless the context makes selection the only sensible goal.
   * SEVERAL checklist-style items circled: batch-toggle them (actions).
   * a plain control button circled (Reveal, Next, Start, Skip): just activate it.
 - NEVER propose removing, hiding or deleting something from a plain circle - removal needs a gesture that says so (a strike-through or scribble over it)
@@ -48,7 +50,7 @@ Respond with ONLY compact JSON, no markdown fences:
 {"say": "<one or two short sentences to show the user>",
  "confidence": "high" | "normal",
  "actions": ["<cmd>", ...],
- "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)", "note": "<1-2 sentence caption shown under the target, e.g. an explanation (optional)>"}]}
+ "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)", "note": "<2-3 sentence caption shown under the target, e.g. an explanation (optional)>"}]}
 - actions: for interactive intent; each cmd copied EXACTLY from elements
 - edits: for corrective intent; target copied EXACTLY from elements' cmd or contents' id
 
@@ -313,7 +315,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Quiz only (laptop):        http://localhost:${PORT}/quiz`);
   console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad`);
   if (USE_OPENAI) {
-    console.log(`  Drawing interpretation: OpenAI (${OPENAI_MODEL})`);
+    console.log(`  Drawing interpretation: OpenAI (${OPENAI_MODEL}) - prompt v${PROMPT_VERSION}`);
   } else if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
     console.log(`  Drawing interpretation: Claude (${CLAUDE_MODEL})`);
   } else {

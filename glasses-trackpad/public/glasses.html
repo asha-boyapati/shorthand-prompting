@@ -1096,7 +1096,8 @@
       lastSign = s;
     }
     const isScribble = revs >= 4 && L > 150;
-    const closed = !isScribble && L > 110 && gap < Math.max(45, L * 0.25);
+    // small circles count too: threshold low enough for a loop around one word
+    const closed = !isScribble && L > 70 && gap < Math.max(35, L * 0.28);
     let shape = 'freeform';
     if (isScribble) {
       shape = 'scribble';
@@ -1144,10 +1145,10 @@
     // how the drawing (any of its strokes) relates to each element
     const flagsFor = (el) => {
       const r = el.getBoundingClientRect();
-      if (!r.width || !r.height) return { circled: false, crossed: false, underlined: false };
+      if (!r.width || !r.height) return { circled: false, crossed: false, underlined: false, touched: false };
       const relL = r.left - rect.left, relT = r.top - rect.top;
       const midY = relT + r.height / 2;
-      let circled = false, crossed = false, underlined = false;
+      let circled = false, crossed = false, underlined = false, touched = false;
       for (const a of an) {
         const loopCx = (a.minX + a.maxX) / 2, loopCy = (a.minY + a.maxY) / 2;
         if (a.closed && (
@@ -1157,13 +1158,18 @@
         }
         const inside = a.pts.reduce((n, p) =>
           n + (p.x >= relL && p.x <= relL + r.width && p.y >= relT && p.y <= relT + r.height ? 1 : 0), 0);
-        if (!a.closed && inside >= Math.min(6, Math.ceil(a.pts.length * 0.2))) crossed = true;
+        if (inside >= 3) touched = true;
+        // crossed requires the stroke to actually SPAN the element, not just
+        // touch it - a small mark on a row is pointing, not striking
         const overlapX = Math.min(a.maxX, relL + r.width) - Math.max(a.minX, relL);
+        const overlapY = Math.min(a.maxY, relT + r.height) - Math.max(a.minY, relT);
+        if (!a.closed && inside >= Math.min(6, Math.ceil(a.pts.length * 0.2)) &&
+            (overlapX >= r.width * 0.5 || overlapY >= r.height * 0.9)) crossed = true;
         if (a.shape === 'line-horizontal' && overlapX > r.width * 0.4 &&
             a.avgY > relT + r.height * 0.55 && a.avgY < relT + r.height + 16) underlined = true;
       }
       if (crossed) underlined = false;
-      return { circled, crossed, underlined };
+      return { circled, crossed, underlined, touched };
     };
     const elements = [...card.querySelectorAll('[data-action]')].map((el) => ({
       label: el.dataset.action, cmd: el.dataset.cmd,
@@ -1210,7 +1216,7 @@
           })),
           bbox: { x: Math.round(minX), y: Math.round(minY), w: Math.round(maxX - minX), h: Math.round(maxY - minY) },
         },
-        elements: elements.map(({ label, cmd, circled, crossed, underlined }) => ({ label, cmd, circled, crossed, underlined })),
+        elements: elements.map(({ label, cmd, circled, crossed, underlined, touched }) => ({ label, cmd, circled, crossed, underlined, touched })),
         contents,
       };
       // screenshot the HUD (strokes included) so the model can see the drawing
