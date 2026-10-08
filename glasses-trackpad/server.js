@@ -21,12 +21,18 @@ let aiEnabled = true;
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
 The user wears glasses with a small HUD and draws strokes on a wrist trackpad. You receive JSON describing:
 - screen: which app screen is showing
-- stroke: geometry summary (closed loop or open stroke, length, bounding box in the 480x400 HUD)
-- elements: actionable UI elements (label, machine cmd, circled=true if the stroke enclosed it)
-- contents: non-interactive display text regions (id, current text, circled)
+- stroke: shape (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length, bounding box in the 480x400 HUD
+- elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined by the stroke)
+- contents: non-interactive display text regions (id, current text, same flags)
 A screenshot of the HUD with the glowing stroke drawn on it may also be attached - use it to see the exact shape and placement of the drawing.
 
-Gestures are either INTERACTIVE (select/activate something) or CORRECTIVE (change how a circled part is displayed: rephrase it, simplify it, translate it, emphasize it, de-emphasize it, cross it out).
+Gestures are either INTERACTIVE (select/activate something) or CORRECTIVE (change how a part is displayed).
+Gesture vocabulary (defaults, override with judgment and the screenshot):
+- circle around element(s): activate/toggle them; circle around content text: corrective - rewrite it better (simpler, clearer) AND/OR emphasize it
+- line through something (crossed=true): cross it out / dismiss / toggle it off (style "strike", or the matching action)
+- line under something (underlined=true): emphasize it
+- scribble over content: the user dislikes it - rewrite that text differently
+- other shapes (arrow, question mark, check): judge from the screenshot; a check often means confirm/next, a question mark means explain (use "say" plus an edit if helpful)
 
 Respond with ONLY compact JSON, no markdown fences:
 {"say": "<one short friendly sentence to show the user>",
@@ -34,7 +40,8 @@ Respond with ONLY compact JSON, no markdown fences:
  "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)"}]}
 - actions: for interactive intent; each cmd copied EXACTLY from elements
 - edits: for corrective intent; target copied EXACTLY from elements' cmd or contents' id
-Rules of thumb: a loop around buttons/checklist items usually means activate/toggle them; a loop around content text usually means a corrective request (simplify or emphasize it - judge from context); a line through something means cross it out or dismiss; if intent is ambiguous, return empty arrays and ask a brief clarifying question in "say".`;
+
+IMPORTANT: prefer DOING something over only commenting. Nearly every gesture that touches an element or content should produce at least one action or edit; "say" alone is a last resort. Only return empty arrays when the stroke touches nothing recognizable - then ask a brief clarifying question in "say".`;
 
 function parseInterpretation(raw) {
   const text = String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');

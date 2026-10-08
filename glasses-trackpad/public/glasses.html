@@ -778,7 +778,17 @@
     if (pts.length < 8) { clearInk(true); return; }
     const L = strokeLength(pts);
     const gap = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y);
-    const closed = L > 110 && gap < Math.max(45, L * 0.25);
+    // count x-direction reversals: a circle has ~2 per lap, a scribble many
+    let revs = 0, lastSign = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i].x - pts[i - 1].x;
+      if (Math.abs(dx) < 3) continue;
+      const s = Math.sign(dx);
+      if (lastSign && s !== lastSign) revs++;
+      lastSign = s;
+    }
+    const isScribble = revs >= 4 && L > 150;
+    const closed = !isScribble && L > 110 && gap < Math.max(45, L * 0.25);
 
     const rect = hud.getBoundingClientRect();
     let minX = W, minY = H, maxX = 0, maxY = 0;
@@ -787,28 +797,56 @@
       maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
     }
     const loopCx = (minX + maxX) / 2, loopCy = (minY + maxY) / 2;
-    const regionCircled = (el) => {
+
+    // --- classify the stroke's shape ---
+    let shape = 'freeform';
+    if (isScribble) {
+      shape = 'scribble';
+    } else if (closed) {
+      shape = 'circle';
+    } else {
+      const straight = gap / Math.max(L, 1);
+      if (straight > 0.82) {
+        const ang = Math.abs(Math.atan2(pts[pts.length - 1].y - pts[0].y, pts[pts.length - 1].x - pts[0].x)) * 180 / Math.PI;
+        shape = (ang < 28 || ang > 152) ? 'line-horizontal'
+          : (ang > 62 && ang < 118) ? 'line-vertical' : 'line-diagonal';
+      }
+    }
+
+    // --- how the stroke relates to each element ---
+    const strokeAvgY = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    const flagsFor = (el) => {
       const r = el.getBoundingClientRect();
-      if (!closed || !r.width || !r.height) return false;
+      if (!r.width || !r.height) return { circled: false, crossed: false, underlined: false };
       const relL = r.left - rect.left, relT = r.top - rect.top;
-      // sample across the element's width: circling just the label text of a
-      // full-width row still counts
       const midY = relT + r.height / 2;
-      return [0.12, 0.3, 0.5, 0.7, 0.88].some((f) => inPoly(relL + r.width * f, midY, pts))
-        // or a small loop drawn on top of a larger element
-        || (loopCx >= relL && loopCx <= relL + r.width && loopCy >= relT && loopCy <= relT + r.height);
+      const circled = closed && (
+        [0.12, 0.3, 0.5, 0.7, 0.88].some((f) => inPoly(relL + r.width * f, midY, pts)) ||
+        (loopCx >= relL && loopCx <= relL + r.width && loopCy >= relT && loopCy <= relT + r.height));
+      const inside = pts.reduce((n, p) =>
+        n + (p.x >= relL && p.x <= relL + r.width && p.y >= relT && p.y <= relT + r.height ? 1 : 0), 0);
+      const crossed = !closed && inside >= Math.min(6, Math.ceil(pts.length * 0.2));
+      const overlapX = Math.min(maxX, relL + r.width) - Math.max(minX, relL);
+      const underlined = shape === 'line-horizontal' && !crossed &&
+        overlapX > r.width * 0.4 &&
+        strokeAvgY > relT + r.height * 0.55 && strokeAvgY < relT + r.height + 16;
+      return { circled, crossed, underlined };
     };
     const elements = [...card.querySelectorAll('[data-action]')].map((el) => ({
       label: el.dataset.action, cmd: el.dataset.cmd,
-      multi: el.dataset.multi === '1', circled: regionCircled(el),
+      multi: el.dataset.multi === '1', ...flagsFor(el),
     }));
     const contents = [...card.querySelectorAll('[data-content]')].map((el) => ({
       id: el.dataset.content,
       text: el.textContent.trim().slice(0, 200),
-      circled: regionCircled(el),
+      ...flagsFor(el),
     }));
 
-    pending = { closed, hits: elements.filter((e) => e.circled) };
+    // offline fallback: a circle selects circled things; a strike acts on
+    // what it crossed through
+    const circledHits = elements.filter((e) => e.circled);
+    const crossedHits = elements.filter((e) => e.crossed);
+    pending = { closed, hits: circledHits.length ? circledHits : (closed ? [] : crossedHits) };
 
     if (ws && ws.readyState === WebSocket.OPEN) {
       showBubble('interpreting your drawing…', true);
@@ -817,12 +855,13 @@
       const payload = {
         screen,
         stroke: {
+          shape,
           closed,
           points: pts.length,
           length: Math.round(L),
           bbox: { x: Math.round(minX), y: Math.round(minY), w: Math.round(maxX - minX), h: Math.round(maxY - minY) },
         },
-        elements: elements.map(({ label, cmd, circled }) => ({ label, cmd, circled })),
+        elements: elements.map(({ label, cmd, circled, crossed, underlined }) => ({ label, cmd, circled, crossed, underlined })),
         contents,
       };
       // screenshot the HUD (stroke included) so the model can see the drawing
@@ -890,8 +929,8 @@
     const { closed, hits } = pending;
     pending = null;
     hideBubble();
-    if (!closed) {
-      showToast('✎ drawing noted (not a circle)');
+    if (!closed && hits.length === 0) {
+      showToast('✎ drawing noted (no gesture match)');
       sendAck('drawing noted', false);
       return;
     }
