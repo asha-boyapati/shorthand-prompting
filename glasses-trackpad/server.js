@@ -128,7 +128,10 @@ const server = http.createServer((req, res) => {
       res.end('Error reading ' + file);
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store', // always serve the latest page after a git pull
+    });
     res.end(data);
   });
 });
