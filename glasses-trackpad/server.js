@@ -16,7 +16,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 10; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 11; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -49,6 +49,10 @@ SPECIAL TASK: when the payload has task "photo-translate", the attached image is
 {"say": "<one-sentence summary of what the photo shows>", "confidence": "high", "actions": [], "edits": [], "lines": [{"orig": "<text as written>", "es": "<Spanish translation>"}, ...]}
 If no text is readable, use "lines": [] and say so.
 
+SPECIAL TASK: when the payload has task "generate-ideas", the user finished a short intake for hackathon brainstorming; payload.answers holds their choices (project type, audience, vibe). Invent exactly 6 DISTINCT hackathon project ideas genuinely tailored to those answers. Respond:
+{"say": "<one-line intro referencing their answers>", "confidence": "high", "actions": [], "edits": [],
+ "ideas": [{"title": "<2-3 word name>", "tag": "<one-line pitch>", "tags": ["<topic>", "<topic>"], "details": ["<concrete feature>", "<how to demo it live>", "<why judges will like it>"]}, ...]}
+
 Respond with ONLY compact JSON, no markdown fences:
 {"say": "<one or two short sentences to show the user>",
  "confidence": "high" | "normal",
@@ -77,9 +81,13 @@ function parseInterpretation(raw) {
         ? parsed.lines.filter(l => l && typeof l.orig === 'string' && typeof l.es === 'string')
             .map(({ orig, es }) => ({ orig, es })).slice(0, 25)
         : [],
+      ideas: Array.isArray(parsed.ideas)
+        ? parsed.ideas.filter(i => i && typeof i.title === 'string')
+            .map(({ title, tag, tags, details }) => ({ title, tag, tags, details })).slice(0, 8)
+        : [],
     };
   } catch {
-    return { say: text.slice(0, 140), confidence: 'normal', actions: [], edits: [], lines: [] };
+    return { say: text.slice(0, 140), confidence: 'normal', actions: [], edits: [], lines: [], ideas: [] };
   }
 }
 
@@ -101,7 +109,7 @@ async function interpretWithClaude(payload) {
     : p.json;
   const response = await claude.beta.messages.create({
     model: CLAUDE_MODEL,
-    max_tokens: 800,
+    max_tokens: 1200,
     output_config: { effort: 'low' },
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
@@ -136,7 +144,7 @@ async function interpretWithOpenAI(payload) {
     },
     body: JSON.stringify({
       model: OPENAI_MODEL,
-      max_completion_tokens: 800,
+      max_completion_tokens: 1200,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: INTERPRET_SYSTEM },
@@ -265,7 +273,7 @@ wss.on('connection', (ws) => {
         .then((r) => {
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
           console.log(`[${tag}] (${r.confidence}) "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
-          sendTo('display', { type: 'assistant', ai: true, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits, lines: r.lines });
+          sendTo('display', { type: 'assistant', ai: true, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits, lines: r.lines, ideas: r.ideas });
           sendTo('trackpad', { type: 'ack', action: r.say, hit: r.actions.length > 0 || r.edits.length > 0 });
         })
         .catch((err) => {

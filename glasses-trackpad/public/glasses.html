@@ -404,9 +404,17 @@
     { title: 'MemLane', tag: 'Whisper-quiet name reminders at networking events', tags: ['wearables', 'privacy'],
       details: ['Face match against people you’ve met (on-device)', 'Name + context appears in HUD', 'Big privacy discussion built in'] },
   ];
+  const INTAKE = [
+    { q: 'What type of project?', opts: ['Mobile app', 'Hardware / wearable', 'Web app', 'AI tool'] },
+    { q: 'Who is it for?', opts: ['Students', 'Everyday consumers', 'Accessibility', 'Climate & community'] },
+    { q: 'What vibe are you going for?', opts: ['Practical & useful', 'Silly & memorable', 'Technically impressive', 'Social impact'] },
+  ];
   const id8 = {};
   function ideateReset() {
-    Object.assign(id8, { pos: 0, expanded: false, kept: [], dropped: [], finished: false });
+    Object.assign(id8, {
+      phase: 'intake', qi: 0, answers: [], ideas: null,
+      pos: 0, expanded: false, kept: [], dropped: [], finished: false,
+    });
   }
 
   // --- translate state: scenes the glasses are "looking at" ---
@@ -590,9 +598,34 @@
   }
 
   function renderIdeate() {
+    if (id8.phase === 'intake') {
+      const Q = INTAKE[id8.qi];
+      const opts = Q.opts.map((o, i) =>
+        '<button class="pill" style="margin:4px;" data-action="' + esc(o) + '" data-cmd="ideate:opt:' + i + '">' + esc(o) + '</button>').join('');
+      const answered = id8.answers.map((a) => a.a).join(' · ');
+      card.innerHTML =
+        '<div class="head"><span>IDEATION · question ' + (id8.qi + 1) + '/' + INTAKE.length + '</span>' +
+          '<span class="chip task">Hackathon</span></div>' +
+        '<div class="center">' +
+          '<div class="bigq" style="font-size:24px;" data-content="ideate-question">' + esc(Q.q) + '</div>' +
+          '<div style="display:flex;flex-wrap:wrap;justify-content:center;max-width:430px;">' + opts + '</div>' +
+          (answered ? '<div class="hint">so far: ' + esc(answered) + '</div>'
+                    : '<div class="hint">your ideas get tailored to the answers</div>') +
+        '</div>' +
+        '<div class="pillrow">' + homeBtn() + '</div>';
+      return;
+    }
+    if (id8.phase === 'loading') {
+      card.innerHTML =
+        '<div class="head"><span>IDEATION</span><span class="chip task">Hackathon</span></div>' +
+        '<div class="center"><div class="bigq" style="font-size:22px;">coming up with ideas…</div></div>' +
+        '<div class="pillrow">' + homeBtn() + '</div>';
+      return;
+    }
+    const list = id8.ideas || IDEAS;
     if (id8.finished) {
       const kept = id8.kept.length
-        ? id8.kept.map(i => '⭐ ' + IDEAS[i].title).join('<br>')
+        ? id8.kept.map(i => '⭐ ' + esc(list[i].title)).join('<br>')
         : 'nothing shortlisted — harsh crowd';
       card.innerHTML =
         '<div class="head"><span>IDEATION · done</span><span class="chip task">Shortlist</span></div>' +
@@ -603,17 +636,17 @@
         '<div class="pillrow"><button class="pill" data-action="Restart ideation" data-cmd="ideate:restart">Restart</button>' + homeBtn() + '</div>';
       return;
     }
-    const idea = IDEAS[id8.pos];
+    const idea = list[id8.pos];
     const details = id8.expanded
-      ? '<ul class="details" data-content="idea-details">' + idea.details.map(d => '<li>' + d + '</li>').join('') + '</ul>'
+      ? '<ul class="details" data-content="idea-details">' + idea.details.map(d => '<li>' + esc(d) + '</li>').join('') + '</ul>'
       : '';
     card.innerHTML =
-      '<div class="head"><span>IDEATION · ' + (id8.pos + 1) + '/' + IDEAS.length + '</span>' +
+      '<div class="head"><span>IDEATION · ' + (id8.pos + 1) + '/' + list.length + '</span>' +
         '<span class="chip task" data-content="ideate-chip">Hackathon</span></div>' +
       '<div class="scrollable center" id="scrollable">' +
-        '<div class="idea-title" data-content="idea-title">' + idea.title + '</div>' +
-        '<div class="idea-tag" data-content="idea-tagline">' + idea.tag + '</div>' +
-        '<div class="tags">' + idea.tags.map(t => '<span class="chip">' + t + '</span>').join('') + '</div>' +
+        '<div class="idea-title" data-content="idea-title">' + esc(idea.title) + '</div>' +
+        '<div class="idea-tag" data-content="idea-tagline">' + esc(idea.tag) + '</div>' +
+        '<div class="tags">' + idea.tags.map(t => '<span class="chip">' + esc(t) + '</span>').join('') + '</div>' +
         details +
         '<div class="hint">swipe right = shortlist · swipe left = discard</div>' +
       '</div>' +
@@ -852,15 +885,55 @@
     }
 
     if (ns === 'ideate') {
-      if (verb === 'restart') ideateReset();
-      else if (id8.finished) return false;
-      else if (verb === 'details') id8.expanded = !id8.expanded;
+      if (verb === 'restart') { ideateReset(); render(); return true; }
+      if (verb === 'opt') {
+        if (id8.phase !== 'intake') return false;
+        const Q = INTAKE[id8.qi];
+        const a = Q && Q.opts[+arg];
+        if (!a) return false;
+        id8.answers.push({ q: Q.q, a });
+        id8.qi++;
+        if (id8.qi >= INTAKE.length) {
+          id8.phase = 'loading';
+          render();
+          requestIdeas();
+        } else {
+          render();
+        }
+        return true;
+      }
+      if (id8.phase !== 'cards' || id8.finished) return false;
+      if (verb === 'details') id8.expanded = !id8.expanded;
       else if (verb === 'keep') { id8.kept.push(id8.pos); ideateAdvance(); }
       else if (verb === 'drop') { id8.dropped.push(id8.pos); ideateAdvance(); }
+      else return false;
       render();
       return true;
     }
     return false;
+  }
+
+  function requestIdeas() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      pending = { ideas: true, closed: false, hits: [] };
+      clearTimeout(pendingTimer);
+      pendingTimer = setTimeout(() => localInterpret(), 25000);
+      showBubble('brainstorming…', true);
+      ws.send(JSON.stringify({
+        type: 'interpret',
+        payload: { screen: 'ideate', task: 'generate-ideas', answers: id8.answers },
+      }));
+    } else {
+      useStaticIdeas('no server connection — built-in ideas');
+    }
+  }
+
+  function useStaticIdeas(reason) {
+    id8.ideas = null;
+    id8.phase = 'cards';
+    id8.pos = 0;
+    if (screen === 'ideate') render();
+    if (reason) showToast(reason);
   }
 
   function quizAdvance() {
@@ -871,14 +944,14 @@
   function ideateAdvance() {
     id8.expanded = false;
     id8.pos++;
-    if (id8.pos >= IDEAS.length) id8.finished = true;
+    if (id8.pos >= (id8.ideas || IDEAS).length) id8.finished = true;
   }
 
   // swipe → per-screen command
   function swipeCmd(dir) {
     if (screen === 'quiz' && !qz.finished) return dir === 'right' ? ['quiz:got', 'Got it'] : ['quiz:miss', 'Missed it — will come back'];
     if (screen === 'cook' && ck.phase === 'steps') return dir === 'right' ? ['cook:next', 'Next step'] : ['cook:back', 'Previous step'];
-    if (screen === 'ideate' && !id8.finished) return dir === 'right' ? ['ideate:keep', 'Shortlisted ⭐'] : ['ideate:drop', 'Discarded'];
+    if (screen === 'ideate' && id8.phase === 'cards' && !id8.finished) return dir === 'right' ? ['ideate:keep', 'Shortlisted ⭐'] : ['ideate:drop', 'Discarded'];
     if (screen === 'translate') return dir === 'right' ? ['tr:next', 'Next scene'] : ['tr:prev', 'Previous scene'];
     if (screen === 'piano' && !pn.finished) return dir === 'right' ? ['piano:next', 'Next lesson'] : ['piano:back', 'Previous lesson'];
     return null;
@@ -1350,6 +1423,25 @@
       showBubble(msg.say || 'translated');
       return;
     }
+    if (pending.ideas) {
+      pending = null;
+      if (!msg.ai || !Array.isArray(msg.ideas) || !msg.ideas.length) {
+        hideBubble();
+        useStaticIdeas('using built-in ideas (AI unavailable)');
+        return;
+      }
+      id8.ideas = msg.ideas.map((i) => ({
+        title: String(i.title || 'Idea'),
+        tag: String(i.tag || ''),
+        tags: Array.isArray(i.tags) ? i.tags.map(String).slice(0, 3) : [],
+        details: Array.isArray(i.details) ? i.details.map(String).slice(0, 4) : [],
+      }));
+      id8.phase = 'cards';
+      id8.pos = 0;
+      if (screen === 'ideate') render();
+      showBubble(msg.say || 'here are some ideas');
+      return;
+    }
     if (!msg.ai) { localInterpret(); return; }
     pending = null;
     const actions = Array.isArray(msg.actions) ? msg.actions : [];
@@ -1378,6 +1470,13 @@
       if (screen === 'translate') render();
       showToast('photo translation needs a working AI key');
       sendAck('photo translation unavailable', false);
+      return;
+    }
+    if (pending.ideas) {
+      pending = null;
+      hideBubble();
+      useStaticIdeas('using built-in ideas (add an AI key for personalized ones)');
+      sendAck('built-in ideas', true);
       return;
     }
     const { closed, hits } = pending;
