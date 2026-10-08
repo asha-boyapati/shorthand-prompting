@@ -156,7 +156,7 @@
     font-size: 13.5px;
     margin-top: 1px;
   }
-  .ai-note { font-size: 12px; color: var(--amber); margin: 2px 0 4px; }
+  .tasknote { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; }
 
   /* piano task */
   .piano {
@@ -405,18 +405,18 @@
 
   // --- translate state: scenes the glasses are "looking at" ---
   const SCENES = [
-    { name: 'Café menu', note: 'I can see a café menu. Tap any line for the Spanish.', lines: [
+    { name: 'Café menu', lines: [
       { en: 'Grilled cheese sandwich', es: 'Sándwich de queso a la plancha' },
       { en: 'Tomato soup', es: 'Sopa de tomate' },
       { en: 'Iced coffee', es: 'Café helado' },
       { en: 'Fresh orange juice', es: 'Jugo de naranja natural' },
     ] },
-    { name: 'Street sign', note: 'A street sign - here’s what it says.', lines: [
+    { name: 'Street sign', lines: [
       { en: 'Main Street', es: 'Calle Principal' },
       { en: 'No parking Mon–Fri', es: 'Prohibido estacionar de lunes a viernes' },
       { en: 'Bus stop ahead', es: 'Parada de autobús más adelante' },
     ] },
-    { name: 'Museum label', note: 'A museum label next to a painting.', lines: [
+    { name: 'Museum label', lines: [
       { en: 'Please do not touch', es: 'Por favor, no tocar' },
       { en: 'Oil on canvas, 1887', es: 'Óleo sobre lienzo, 1887' },
       { en: 'Gift of the artist', es: 'Donación del artista' },
@@ -632,7 +632,6 @@
       '<div class="head"><span data-content="translate-progress">TRANSLATE · scene ' + (tr.scene + 1) + '/' + SCENES.length + '</span>' +
         '<span class="chip task" data-content="translate-scene">' + esc(sc.name) + ' → Spanish</span></div>' +
       '<div class="scrollable" id="scrollable">' +
-        '<div class="ai-note" data-content="translate-note">✨ ' + esc(sc.note) + '</div>' +
         '<div class="camera"><div class="camlabel">◉ what you’re looking at</div>' + rows + '</div>' +
         '<div class="hint">tap a line to translate it · circle several in draw mode · swipe = change scene</div>' +
       '</div>' +
@@ -671,7 +670,7 @@
       '<div class="head"><span data-content="piano-progress">PIANO · lesson ' + (pn.lesson + 1) + '/' + LESSONS.length + '</span>' +
         '<span class="chip task" data-content="piano-title">' + esc(ls.title) + '</span></div>' +
       '<div class="body">' +
-        '<div class="ai-note" data-content="piano-text">✨ ' + esc(ls.text) + '</div>' +
+        '<div class="tasknote" data-content="piano-text">' + esc(ls.text) + '</div>' +
         '<div class="piano">' + whites + blacks + '</div>' +
         '<div class="hint" style="padding:3px 0;">' + progress + ' · tap the glowing keys · swipe = change lesson</div>' +
       '</div>' +
