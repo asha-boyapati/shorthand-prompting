@@ -157,6 +157,12 @@
     margin-top: 1px;
   }
   .tasknote { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; }
+  .elnote {
+    font-size: 12px;
+    color: var(--hud-glow);
+    padding: 2px 14px 5px;
+    line-height: 1.4;
+  }
 
   /* piano task */
   .piano {
@@ -1260,6 +1266,15 @@
       if (e.style === 'emphasize') el.classList.add('ai-emphasize');
       else if (e.style === 'dim') el.classList.add('ai-dim');
       else if (e.style === 'strike') el.classList.add('ai-strike');
+      if (typeof e.note === 'string' && e.note) {
+        // a caption pinned under the target (e.g. an explanation)
+        const old = el.nextElementSibling;
+        if (old && old.classList.contains('elnote')) old.remove();
+        const n = document.createElement('div');
+        n.className = 'elnote';
+        n.textContent = 'ⓘ ' + e.note;
+        el.insertAdjacentElement('afterend', n);
+      }
       el.classList.add('circled');
       setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 900);
     }

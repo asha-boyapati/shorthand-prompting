@@ -25,7 +25,7 @@ The user wears glasses with a small HUD and draws strokes on a wrist trackpad. Y
   "interact" = the drawing is INPUT to the app. FIRST decide from the screenshot whether the drawing is HANDWRITING (letters, words, numbers) or a gesture; drawing.looksLikeWriting is a geometric hint, but the screenshot is the truth.
     If it is handwriting: transcribe it and treat the text as something the user just SAID to you. The circled/crossed/underlined flags are then meaningless artifacts of writing on top of the UI - IGNORE them completely (writing "tools" across the ingredient list is a question about tools, NOT a request to cross off ingredients). Respond to the meaning in the screen's context: a written answer to the on-screen question means they are answering it (check it: if right, say so and use the matching action; if wrong, say the correct answer); "yes"/"no" answers your previous question; any other written word or phrase is a request or query (e.g. "tools" while cooking -> briefly list the tools the recipe needs). For written queries an informative "say" with empty actions is a GOOD response - the act-first rule below applies to gestures, not writing.
     If it is a gesture: select, activate, answer, navigate per the vocabulary below.
-  "correct" = the drawing critiques the DISPLAY itself: the marked part is a feature they want changed. Propose changing, rewriting, moving or hiding it (edits), or use a matching extraCommand (e.g. circling the quiz topic chip -> offer to switch the quiz to one topic, or to hide the chip with style dim). Do not treat marks as app input in this mode.
+  "correct" = the drawing critiques the DISPLAY itself: the marked part is a feature they want changed or explained. Propose changing, rewriting, moving or hiding it (edits), explain it (a "note" edit), or use a matching extraCommand (e.g. circling the quiz topic chip -> offer to switch the quiz to one topic, or to hide the chip with style dim). Do not treat marks as app input in this mode.
 - extraCommands: additional cmds that are valid in "actions" but have no on-screen element (each with a description)
 - drawing: one or more strokes made in quick succession (a complex drawing - an X, an arrow, a question mark, a letter - spans several strokes; interpret them TOGETHER as one gesture). Each stroke has a shape guess (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length and bounding box in the 480x400 HUD; the shape guesses are crude, trust the screenshot over them for multi-stroke drawings
 - elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined by the drawing)
@@ -34,7 +34,9 @@ A screenshot of the HUD with the glowing drawing on it may also be attached - us
 
 Gestures are either INTERACTIVE (select/activate something) or CORRECTIVE (change how a part is displayed).
 Gesture vocabulary (defaults, override with judgment and the screenshot):
-- circle around element(s): activate/toggle them; circle around content text: corrective - rewrite it better (simpler, clearer) AND/OR emphasize it
+- circle around ONE named thing (an ingredient, a term, a title): the user may simply be asking WHAT IT IS. If the thing is at all unfamiliar or technical (e.g. a specialty ingredient), explain it: 1-2 sentences in "say" plus an edits entry with a "note" attached to that item. Explaining is harmless - use confidence "high" and answer directly rather than asking permission
+- circle around element(s) to pick them: activate/toggle them; circle around content text: corrective - rewrite it better (simpler, clearer) AND/OR emphasize it
+- NEVER propose removing, hiding or deleting something from a plain circle - removal needs a gesture that says so (a strike-through or scribble over it)
 - line through something (crossed=true): cross it out / dismiss / toggle it off (style "strike", or the matching action)
 - line under something (underlined=true): emphasize it
 - scribble over content: the user dislikes it - rewrite that text differently
@@ -44,7 +46,7 @@ Respond with ONLY compact JSON, no markdown fences:
 {"say": "<one or two short sentences to show the user>",
  "confidence": "high" | "normal",
  "actions": ["<cmd>", ...],
- "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)"}]}
+ "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)", "note": "<1-2 sentence caption shown under the target, e.g. an explanation (optional)>"}]}
 - actions: for interactive intent; each cmd copied EXACTLY from elements
 - edits: for corrective intent; target copied EXACTLY from elements' cmd or contents' id
 
@@ -62,6 +64,7 @@ function parseInterpretation(raw) {
       actions: Array.isArray(parsed.actions) ? parsed.actions.filter(a => typeof a === 'string') : [],
       edits: Array.isArray(parsed.edits)
         ? parsed.edits.filter(e => e && typeof e.target === 'string')
+            .map(({ target, text, style, note }) => ({ target, text, style, note }))
         : [],
     };
   } catch {
