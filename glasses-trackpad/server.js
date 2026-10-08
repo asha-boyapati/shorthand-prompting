@@ -34,8 +34,10 @@ A screenshot of the HUD with the glowing drawing on it may also be attached - us
 
 Gestures are either INTERACTIVE (select/activate something) or CORRECTIVE (change how a part is displayed).
 Gesture vocabulary (defaults, override with judgment and the screenshot):
-- circle around ONE named thing (an ingredient, a term, a title): the user may simply be asking WHAT IT IS. If the thing is at all unfamiliar or technical (e.g. a specialty ingredient), explain it: 1-2 sentences in "say" plus an edits entry with a "note" attached to that item. Explaining is harmless - use confidence "high" and answer directly rather than asking permission
-- circle around element(s) to pick them: activate/toggle them; circle around content text: corrective - rewrite it better (simpler, clearer) AND/OR emphasize it
+- CIRCLES: the trackpad already has a TAP for plain selection, so a circle is a richer mark - it means "tell me more about this / do something smart with this", not "click this".
+  * ONE item circled (an ingredient, a term, a question, a line, a title): EXPAND on it - what it is, context, a tip, a substitute, why it matters. Put 1-2 sentences in "say" and pin the same or fuller text under the item with an edits "note". This is harmless: confidence "high", answer directly. Do NOT ask "Should I select ...?" and do NOT toggle it unless the context makes selection the only sensible goal.
+  * SEVERAL checklist-style items circled: batch-toggle them (actions).
+  * a plain control button circled (Reveal, Next, Start, Skip): just activate it.
 - NEVER propose removing, hiding or deleting something from a plain circle - removal needs a gesture that says so (a strike-through or scribble over it)
 - line through something (crossed=true): cross it out / dismiss / toggle it off (style "strike", or the matching action)
 - line under something (underlined=true): emphasize it
