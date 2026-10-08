@@ -133,6 +133,66 @@
   .score-line .m { color: var(--red); }
   .score-line .s { color: var(--amber); }
 
+  /* translate task */
+  .camera {
+    border: 1.5px dashed rgba(139,148,158,0.5);
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin: 2px 0 6px;
+  }
+  .camera .camlabel {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  .tline {
+    padding: 5px 10px; margin: 3px 0;
+    border-radius: 10px; border: 1px solid transparent;
+    font-size: 14.5px; cursor: pointer;
+  }
+  .tline:hover { border-color: var(--border); }
+  .tline .es {
+    display: block;
+    color: var(--hud-glow);
+    font-size: 13.5px;
+    margin-top: 1px;
+  }
+  .ai-note { font-size: 12px; color: var(--amber); margin: 2px 0 4px; }
+
+  /* piano task */
+  .piano {
+    position: relative;
+    height: 128px;
+    margin: 6px 2px;
+    display: flex;
+  }
+  .wkey {
+    flex: 1;
+    background: #e9edf2;
+    border: 1px solid #0d1117;
+    border-radius: 0 0 6px 6px;
+    position: relative;
+    cursor: pointer;
+  }
+  .wkey .kname {
+    position: absolute; bottom: 4px; left: 0; right: 0;
+    text-align: center; font-size: 10px; color: #30363d;
+  }
+  .bkey {
+    position: absolute;
+    top: 0; width: 9%; height: 58%;
+    background: #10141a;
+    border: 1px solid #000;
+    border-radius: 0 0 4px 4px;
+    z-index: 2;
+    cursor: pointer;
+  }
+  .wkey.target, .bkey.target {
+    box-shadow: inset 0 0 0 2px var(--hud-glow), 0 0 10px rgba(77,210,255,0.5);
+  }
+  .wkey.hitkey { background: #bdf1d0; }
+  .bkey.hitkey { background: #1f5c38; }
+  .wkey.pressed, .bkey.pressed { transform: translateY(2px); filter: brightness(1.2); }
+
   /* AI corrective-edit styles */
   .ai-emphasize {
     font-size: 1.25em !important;
@@ -270,8 +330,8 @@
     { id: 'quiz',      text: 'Quiz me on addition and multiplication', ready: true },
     { id: 'cook',      text: 'Help me cook pasta carbonara',           ready: true },
     { id: 'ideate',    text: 'Help me brainstorm hackathon project ideas', ready: true },
-    { id: 'translate', text: 'Translate what I’m looking at to Spanish' },
-    { id: 'guitar',    text: 'Teach me basic guitar chords' },
+    { id: 'translate', text: 'Translate what I’m looking at to Spanish', ready: true },
+    { id: 'piano',     text: 'Teach me basic piano', ready: true },
   ];
 
   // ====================== app state ======================
@@ -343,7 +403,73 @@
     Object.assign(id8, { pos: 0, expanded: false, kept: [], dropped: [], finished: false });
   }
 
-  quizReset(); cookReset(); ideateReset();
+  // --- translate state: scenes the glasses are "looking at" ---
+  const SCENES = [
+    { name: 'Café menu', note: 'I can see a café menu. Tap any line for the Spanish.', lines: [
+      { en: 'Grilled cheese sandwich', es: 'Sándwich de queso a la plancha' },
+      { en: 'Tomato soup', es: 'Sopa de tomate' },
+      { en: 'Iced coffee', es: 'Café helado' },
+      { en: 'Fresh orange juice', es: 'Jugo de naranja natural' },
+    ] },
+    { name: 'Street sign', note: 'A street sign - here’s what it says.', lines: [
+      { en: 'Main Street', es: 'Calle Principal' },
+      { en: 'No parking Mon–Fri', es: 'Prohibido estacionar de lunes a viernes' },
+      { en: 'Bus stop ahead', es: 'Parada de autobús más adelante' },
+    ] },
+    { name: 'Museum label', note: 'A museum label next to a painting.', lines: [
+      { en: 'Please do not touch', es: 'Por favor, no tocar' },
+      { en: 'Oil on canvas, 1887', es: 'Óleo sobre lienzo, 1887' },
+      { en: 'Gift of the artist', es: 'Donación del artista' },
+    ] },
+  ];
+  const tr = {};
+  function translateReset() {
+    Object.assign(tr, { scene: 0, revealed: SCENES[0].lines.map(() => false) });
+  }
+  function translateScene(delta) {
+    tr.scene = (tr.scene + delta + SCENES.length) % SCENES.length;
+    tr.revealed = SCENES[tr.scene].lines.map(() => false);
+  }
+
+  // --- piano state ---
+  const WHITE_KEYS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  const BLACK_KEYS = [
+    { n: 'Db', left: 10 }, { n: 'Eb', left: 24.3 },
+    { n: 'Gb', left: 53 }, { n: 'Ab', left: 67.3 }, { n: 'Bb', left: 81.6 },
+  ];
+  const NOTE_FREQ = {
+    C: 261.63, Db: 277.18, D: 293.66, Eb: 311.13, E: 329.63, F: 349.23,
+    Gb: 369.99, G: 392.0, Ab: 415.3, A: 440.0, Bb: 466.16, B: 493.88,
+  };
+  const LESSONS = [
+    { title: 'Find middle C', text: 'C sits just left of the two black keys. Tap it.', target: ['C'] },
+    { title: 'C major chord', text: 'C – E – G makes a C major chord. Tap all three.', target: ['C', 'E', 'G'] },
+    { title: 'F major chord', text: 'Now F – A – C. Notice the same shape, moved up.', target: ['F', 'A', 'C'] },
+    { title: 'G major chord', text: 'And G – B – D — the third chord of the family.', target: ['G', 'B', 'D'] },
+    { title: 'First progression', text: 'C, then F, then G — tap them in order. That’s the backbone of a thousand songs.', target: ['C', 'F', 'G'], ordered: true },
+  ];
+  const pn = {};
+  function pianoReset() {
+    Object.assign(pn, { lesson: 0, hits: [], finished: false });
+  }
+
+  let audioCtx = null;
+  function playNote(name) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'triangle';
+      o.frequency.value = NOTE_FREQ[name] || 261.63;
+      g.gain.setValueAtTime(0.25, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + 0.65);
+    } catch {}
+  }
+
+  quizReset(); cookReset(); ideateReset(); translateReset(); pianoReset();
 
   // ====================== rendering ======================
   function homeBtn() {
@@ -356,6 +482,8 @@
     else if (screen === 'quiz') renderQuiz();
     else if (screen === 'cook') renderCook();
     else if (screen === 'ideate') renderIdeate();
+    else if (screen === 'translate') renderTranslate();
+    else if (screen === 'piano') renderPiano();
     else renderSoon();
     updateHover();
   }
@@ -492,6 +620,68 @@
       '</div>';
   }
 
+  function renderTranslate() {
+    const sc = SCENES[tr.scene];
+    const allShown = tr.revealed.every(Boolean);
+    const rows = sc.lines.map((l, i) =>
+      '<div class="tline" data-action="' + esc(l.en) + '" data-cmd="tr:line:' + i + '" data-multi="1">' +
+      esc(l.en) +
+      (tr.revealed[i] ? '<span class="es">→ ' + esc(l.es) + '</span>' : '') +
+      '</div>').join('');
+    card.innerHTML =
+      '<div class="head"><span data-content="translate-progress">TRANSLATE · scene ' + (tr.scene + 1) + '/' + SCENES.length + '</span>' +
+        '<span class="chip task" data-content="translate-scene">' + esc(sc.name) + ' → Spanish</span></div>' +
+      '<div class="scrollable" id="scrollable">' +
+        '<div class="ai-note" data-content="translate-note">✨ ' + esc(sc.note) + '</div>' +
+        '<div class="camera"><div class="camlabel">◉ what you’re looking at</div>' + rows + '</div>' +
+        '<div class="hint">tap a line to translate it · circle several in draw mode · swipe = change scene</div>' +
+      '</div>' +
+      '<div class="pillrow">' +
+        '<button class="pill" data-action="' + (allShown ? 'Show originals only' : 'Translate everything') + '" data-cmd="tr:all">' +
+          (allShown ? 'Hide all' : 'Translate all') + '</button>' +
+        '<button class="pill" data-action="Next scene" data-cmd="tr:next">Next scene →</button>' +
+        homeBtn() +
+      '</div>';
+  }
+
+  function renderPiano() {
+    if (pn.finished) {
+      card.innerHTML =
+        '<div class="head"><span>PIANO · done</span><span class="chip task">Lesson complete</span></div>' +
+        '<div class="center">' +
+          '<div class="bigq">\u{1F3B9} You just played C – F – G</div>' +
+          '<div class="hint" data-content="piano-note">that progression powers countless songs — next time: adding the left hand</div>' +
+        '</div>' +
+        '<div class="pillrow"><button class="pill" data-action="Restart piano lesson" data-cmd="piano:restart">Restart</button>' + homeBtn() + '</div>';
+      return;
+    }
+    const ls = LESSONS[pn.lesson];
+    const isTarget = (n) => ls.target.includes(n);
+    const isHit = (n) => pn.hits.includes(n);
+    const whites = WHITE_KEYS.map((n) =>
+      '<div class="wkey' + (isTarget(n) ? ' target' : '') + (isHit(n) ? ' hitkey' : '') + '"' +
+      ' data-action="' + n + ' key" data-cmd="piano:key:' + n + '"><span class="kname">' + n + '</span></div>').join('');
+    const blacks = BLACK_KEYS.map((b) =>
+      '<div class="bkey' + (isTarget(b.n) ? ' target' : '') + (isHit(b.n) ? ' hitkey' : '') + '"' +
+      ' style="left:' + b.left + '%" data-action="' + b.n + ' key" data-cmd="piano:key:' + b.n + '"></div>').join('');
+    const progress = ls.ordered
+      ? ls.target.map((n, i) => (i < pn.hits.length ? '✓' : '') + n).join(' → ')
+      : ls.target.map((n) => (isHit(n) ? '✓' : '') + n).join(' · ');
+    card.innerHTML =
+      '<div class="head"><span data-content="piano-progress">PIANO · lesson ' + (pn.lesson + 1) + '/' + LESSONS.length + '</span>' +
+        '<span class="chip task" data-content="piano-title">' + esc(ls.title) + '</span></div>' +
+      '<div class="body">' +
+        '<div class="ai-note" data-content="piano-text">✨ ' + esc(ls.text) + '</div>' +
+        '<div class="piano">' + whites + blacks + '</div>' +
+        '<div class="hint" style="padding:3px 0;">' + progress + ' · tap the glowing keys · swipe = change lesson</div>' +
+      '</div>' +
+      '<div class="pillrow">' +
+        '<button class="pill" data-action="Previous lesson" data-cmd="piano:back">← Back</button>' +
+        '<button class="pill good" data-action="Next lesson" data-cmd="piano:next">Next →</button>' +
+        homeBtn() +
+      '</div>';
+  }
+
   function renderSoon() {
     card.innerHTML =
       '<div class="head"><span>ASSISTANT</span><span class="chip">Not built yet</span></div>' +
@@ -518,6 +708,8 @@
         if (p.id === 'quiz') quizReset();
         if (p.id === 'cook') cookReset();
         if (p.id === 'ideate') ideateReset();
+        if (p.id === 'translate') translateReset();
+        if (p.id === 'piano') pianoReset();
       }
       render();
       return true;
@@ -572,6 +764,66 @@
       return true;
     }
 
+    if (ns === 'tr') {
+      if (verb === 'line') {
+        const i = +arg;
+        if (!SCENES[tr.scene].lines[i]) return false;
+        tr.revealed[i] = !tr.revealed[i];
+      } else if (verb === 'all') {
+        const show = !tr.revealed.every(Boolean);
+        tr.revealed = tr.revealed.map(() => show);
+      } else if (verb === 'next') translateScene(1);
+      else if (verb === 'prev') translateScene(-1);
+      else return false;
+      render();
+      return true;
+    }
+
+    if (ns === 'piano') {
+      if (verb === 'restart') { pianoReset(); render(); return true; }
+      if (verb === 'next') {
+        if (pn.lesson >= LESSONS.length - 1) pn.finished = true;
+        else { pn.lesson++; pn.hits = []; }
+        render();
+        return true;
+      }
+      if (verb === 'back') {
+        if (pn.finished) pn.finished = false;
+        else if (pn.lesson > 0) pn.lesson--;
+        pn.hits = [];
+        render();
+        return true;
+      }
+      if (verb === 'key') {
+        if (pn.finished || !NOTE_FREQ[arg]) return false;
+        playNote(arg);
+        const ls = LESSONS[pn.lesson];
+        if (ls.ordered) {
+          if (arg === ls.target[pn.hits.length]) pn.hits.push(arg);
+          else pn.hits = (arg === ls.target[0]) ? [arg] : [];
+        } else if (ls.target.includes(arg) && !pn.hits.includes(arg)) {
+          pn.hits.push(arg);
+        }
+        const complete = ls.target.every((n) => pn.hits.includes(n)) &&
+          (!ls.ordered || pn.hits.length === ls.target.length);
+        render();
+        if (complete) {
+          showToast('✓ ' + ls.title + '!');
+          sendAck(ls.title + ' complete', true);
+          const atLesson = pn.lesson;
+          setTimeout(() => {
+            if (screen === 'piano' && !pn.finished && pn.lesson === atLesson) {
+              if (pn.lesson >= LESSONS.length - 1) pn.finished = true;
+              else { pn.lesson++; pn.hits = []; }
+              render();
+            }
+          }, 1100);
+        }
+        return true;
+      }
+      return false;
+    }
+
     if (ns === 'ideate') {
       if (verb === 'restart') ideateReset();
       else if (id8.finished) return false;
@@ -600,6 +852,8 @@
     if (screen === 'quiz' && !qz.finished) return dir === 'right' ? ['quiz:got', 'Got it'] : ['quiz:miss', 'Missed it — will come back'];
     if (screen === 'cook' && ck.phase === 'steps') return dir === 'right' ? ['cook:next', 'Next step'] : ['cook:back', 'Previous step'];
     if (screen === 'ideate' && !id8.finished) return dir === 'right' ? ['ideate:keep', 'Shortlisted ⭐'] : ['ideate:drop', 'Discarded'];
+    if (screen === 'translate') return dir === 'right' ? ['tr:next', 'Next scene'] : ['tr:prev', 'Previous scene'];
+    if (screen === 'piano' && !pn.finished) return dir === 'right' ? ['piano:next', 'Next lesson'] : ['piano:back', 'Previous lesson'];
     return null;
   }
 
