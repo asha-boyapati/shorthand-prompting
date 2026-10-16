@@ -31,7 +31,7 @@
   }
 
   #statusbar {
-    font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
+    font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--muted); display: flex; align-items: center; gap: 8px;
   }
   #statusbar .dot {
@@ -54,12 +54,12 @@
 
   .head {
     display: flex; justify-content: space-between; align-items: center;
-    font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+    font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
     margin-bottom: 8px;
   }
   .chip {
     border: 1px solid var(--border); border-radius: 14px;
-    padding: 3px 12px; font-size: 11.5px; letter-spacing: 0.05em;
+    padding: 3px 12px; font-size: 12.5px; letter-spacing: 0.05em;
   }
   .chip.add  { color: var(--green); border-color: rgba(63,185,80,0.5); }
   .chip.mult { color: var(--amber); border-color: rgba(210,153,34,0.5); }
@@ -73,8 +73,8 @@
     display: flex; align-items: center; gap: 9px;
     border: 1px solid var(--border); border-radius: 16px;
     background: #171e28;
-    padding: 6px 13px; margin: 3px 0;
-    font-size: 13px; cursor: pointer;
+    padding: 9px 14px; margin: 4px 0;
+    font-size: 16px; cursor: pointer;
   }
   .prompt .mic { color: var(--hud-glow); font-size: 11px; }
   .prompt.soon { color: var(--muted); }
@@ -84,51 +84,51 @@
   .pill {
     border-radius: 22px; border: 1px solid var(--border);
     background: #21262d; color: var(--text);
-    font-size: 14px; padding: 9px 22px; cursor: pointer;
+    font-size: 16px; padding: 10px 24px; cursor: pointer;
   }
-  .pill.small { font-size: 12px; padding: 6px 14px; }
+  .pill.small { font-size: 13.5px; padding: 7px 15px; }
   .pill.good { border-color: rgba(63,185,80,0.6); color: var(--green); }
   .pill.bad  { border-color: rgba(248,81,73,0.6); color: var(--red); }
 
-  .bigq { font-size: 34px; font-weight: 600; text-align: center; }
+  .bigq { font-size: 38px; font-weight: 600; text-align: center; }
   .biganswer {
-    font-size: 42px; font-weight: 700; text-align: center;
+    font-size: 48px; font-weight: 700; text-align: center;
     color: var(--hud-glow); text-shadow: 0 0 16px rgba(77,210,255,0.5); min-height: 50px;
   }
   .biganswer.hidden { visibility: hidden; }
-  .hint { font-size: 11.5px; color: var(--muted); text-align: center; }
+  .hint { font-size: 12.5px; color: var(--muted); text-align: center; }
   .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
 
   /* cooking */
   .ing {
     display: flex; align-items: center; gap: 10px;
     border: 1px solid var(--border); border-radius: 14px;
-    padding: 6px 12px; margin: 3px 0; font-size: 13.5px; cursor: pointer;
+    padding: 9px 13px; margin: 4px 0; font-size: 16.5px; cursor: pointer;
     background: #171e28;
   }
   .ing .box {
-    width: 16px; height: 16px; border-radius: 4px;
+    width: 20px; height: 20px; border-radius: 5px;
     border: 1.5px solid var(--muted); flex: none;
     display: flex; align-items: center; justify-content: center; font-size: 12px;
   }
   .ing.checked { border-color: rgba(63,185,80,0.5); }
   .ing.checked .box { border-color: var(--green); color: var(--green); }
-  .steptext { font-size: 23px; font-weight: 600; text-align: center; line-height: 1.35; }
+  .steptext { font-size: 27px; font-weight: 600; text-align: center; line-height: 1.35; }
   .timerchip {
-    font-size: 26px; font-weight: 700; color: var(--amber);
+    font-size: 30px; font-weight: 700; color: var(--amber);
     border: 1px solid rgba(210,153,34,0.5); border-radius: 14px; padding: 4px 18px;
   }
   .timerchip.running { color: var(--hud-glow); border-color: rgba(77,210,255,0.5); }
 
   /* ideation */
-  .idea-title { font-size: 26px; font-weight: 700; text-align: center; }
-  .idea-tag { font-size: 14px; color: var(--muted); text-align: center; }
+  .idea-title { font-size: 30px; font-weight: 700; text-align: center; }
+  .idea-tag { font-size: 16.5px; color: var(--muted); text-align: center; }
   .tags { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
   .tags .chip { font-size: 10.5px; padding: 2px 9px; }
-  .details { font-size: 12.5px; color: var(--text); margin: 4px 0 0; padding-left: 18px; }
+  .details { font-size: 15px; color: var(--text); margin: 4px 0 0; padding-left: 18px; }
   .details li { margin: 2px 0; }
-  .shortlist { font-size: 15px; line-height: 1.7; text-align: center; }
-  .score-line { font-size: 20px; text-align: center; }
+  .shortlist { font-size: 18px; line-height: 1.7; text-align: center; }
+  .score-line { font-size: 24px; text-align: center; }
   .score-line .g { color: var(--green); }
   .score-line .m { color: var(--red); }
   .score-line .s { color: var(--amber); }
@@ -147,18 +147,18 @@
   .tline {
     padding: 5px 10px; margin: 3px 0;
     border-radius: 10px; border: 1px solid transparent;
-    font-size: 14.5px; cursor: pointer;
+    font-size: 17px; cursor: pointer;
   }
   .tline:hover { border-color: var(--border); }
   .tline .es {
     display: block;
     color: var(--hud-glow);
-    font-size: 13.5px;
+    font-size: 16px;
     margin-top: 1px;
   }
-  .tasknote { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; }
+  .tasknote { font-size: 14.5px; color: var(--muted); margin: 2px 0 4px; }
   .elnote {
-    font-size: 12px;
+    font-size: 13.5px;
     color: var(--hud-glow);
     padding: 2px 14px 5px;
     line-height: 1.4;
@@ -264,7 +264,7 @@
     transform: translateX(-50%) translateY(20px);
     background: rgba(13, 17, 23, 0.92);
     border: 1px solid var(--hud-glow); color: var(--hud-glow);
-    padding: 7px 16px; border-radius: 18px; font-size: 13px;
+    padding: 8px 17px; border-radius: 18px; font-size: 14.5px;
     opacity: 0; transition: opacity 0.25s, transform 0.25s;
     z-index: 30; pointer-events: none;
     white-space: nowrap; max-width: 440px; overflow: hidden; text-overflow: ellipsis;
@@ -279,9 +279,9 @@
     background: rgba(13, 17, 23, 0.95);
     border: 1px solid var(--amber);
     color: var(--text);
-    padding: 9px 16px;
+    padding: 10px 17px;
     border-radius: 14px;
-    font-size: 13px;
+    font-size: 15px;
     line-height: 1.4;
     max-width: 420px;
     text-align: center;
@@ -291,6 +291,30 @@
     pointer-events: none;
   }
   #bubble.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* interpretation chooser: the model's alternative readings */
+  #chooser {
+    position: absolute;
+    top: 86px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 31;
+    display: none;
+    flex-direction: column;
+    gap: 7px;
+    max-width: 430px;
+  }
+  #chooser.show { display: flex; }
+  .altbtn {
+    border-radius: 14px;
+    border: 1px solid var(--amber);
+    background: rgba(13, 17, 23, 0.95);
+    color: var(--text);
+    font-size: 15px;
+    padding: 9px 18px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .altbtn .n { color: var(--amber); margin-right: 7px; }
   #bubble .who { color: var(--amber); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; display: block; margin-bottom: 2px; }
   #bubble.thinking { border-color: var(--border); color: var(--muted); }
 </style>
@@ -308,6 +332,7 @@
   <div id="cursor" class="hidden"></div>
   <div id="toast"></div>
   <div id="bubble"></div>
+  <div id="chooser"></div>
 </div>
 
 <script>
@@ -320,6 +345,7 @@
   const cursor = document.getElementById('cursor');
   const toast = document.getElementById('toast');
   const bubble = document.getElementById('bubble');
+  const chooser = document.getElementById('chooser');
   const flash = document.getElementById('flash');
   const statusbar = document.getElementById('statusbar');
   const statustext = document.getElementById('statustext');
@@ -515,7 +541,7 @@
     card.innerHTML =
       '<div class="head"><span>ASSISTANT · what do you want to do?</span><span class="chip task">' + PROMPTS.length + ' prompts</span></div>' +
       '<div class="scrollable" id="scrollable">' + rows + '</div>' +
-      '<div class="hint" style="padding-top:6px;">tap a prompt · or circle one in draw mode</div>';
+      '<div class="hint" style="padding-top:6px;">tap or circle a prompt</div>';
   }
 
   function renderQuiz() {
@@ -542,7 +568,7 @@
       '<div class="center">' +
         '<div class="bigq" data-content="quiz-question">' + q.text + '</div>' +
         '<div class="biganswer ' + (qz.revealed ? '' : 'hidden') + '" data-content="quiz-answer">' + q.answer + '</div>' +
-        '<div class="hint">swipe right = got it · swipe left = missed it</div>' +
+        '<div class="hint">→ got it · ← missed it</div>' +
       '</div>' +
       '<div class="pillrow">' + btns + homeBtn() + '</div>';
   }
@@ -556,7 +582,7 @@
       card.innerHTML =
         '<div class="head"><span>COOKING · carbonara</span><span class="chip task" data-content="cook-chip">Ingredients</span></div>' +
         '<div class="scrollable" id="scrollable">' + rows + '</div>' +
-        '<div class="hint" style="padding:4px 0;">tap to check · or circle several at once in draw mode</div>' +
+        '<div class="hint" style="padding:4px 0;">tap = check · circle = info</div>' +
         '<div class="pillrow"><button class="pill good" data-action="Start cooking" data-cmd="cook:start">Start cooking</button>' + homeBtn() + '</div>';
       return;
     }
@@ -587,7 +613,7 @@
         '<span class="chip task" data-content="cook-chip">Carbonara</span></div>' +
       '<div class="center">' +
         '<div class="steptext" data-content="cook-step">' + s.text + '</div>' + timerHtml +
-        '<div class="hint">swipe right = next · swipe left = back</div>' +
+        '<div class="hint">→ next · ← back</div>' +
       '</div>' +
       '<div class="pillrow">' +
         '<button class="pill" data-action="Previous step" data-cmd="cook:back">← Back</button>' +
@@ -648,7 +674,7 @@
         '<div class="idea-tag" data-content="idea-tagline">' + esc(idea.tag) + '</div>' +
         '<div class="tags">' + idea.tags.map(t => '<span class="chip">' + esc(t) + '</span>').join('') + '</div>' +
         details +
-        '<div class="hint">swipe right = shortlist · swipe left = discard</div>' +
+        '<div class="hint">→ keep · ← drop</div>' +
       '</div>' +
       '<div class="pillrow">' +
         '<button class="pill" data-action="' + (id8.expanded ? 'Hide details' : 'Show details') + '" data-cmd="ideate:details">' +
@@ -693,7 +719,7 @@
         '<span class="chip task" data-content="translate-scene">' + esc(sc.name) + ' → Spanish</span></div>' +
       '<div class="scrollable" id="scrollable">' +
         '<div class="camera"><div class="camlabel">◉ what you’re looking at</div>' + rows + '</div>' +
-        '<div class="hint">tap a line to translate it · circle several in draw mode · swipe = change scene</div>' +
+        '<div class="hint">tap = translate · swipe = scene</div>' +
       '</div>' +
       '<div class="pillrow">' +
         '<button class="pill" data-action="' + (allShown ? 'Show originals only' : 'Translate everything') + '" data-cmd="tr:all">' +
@@ -732,7 +758,7 @@
       '<div class="body">' +
         '<div class="tasknote" data-content="piano-text">' + esc(ls.text) + '</div>' +
         '<div class="piano">' + whites + blacks + '</div>' +
-        '<div class="hint" style="padding:3px 0;">' + progress + ' · tap the glowing keys · swipe = change lesson</div>' +
+        '<div class="hint" style="padding:3px 0;">' + progress + ' · swipe = lesson</div>' +
       '</div>' +
       '<div class="pillrow">' +
         '<button class="pill" data-action="Previous lesson" data-cmd="piano:back">← Back</button>' +
@@ -1035,6 +1061,10 @@
     r.addEventListener('animationend', () => r.remove());
 
     const el = elementUnderCursor();
+    if (el && el.dataset.alt !== undefined && proposal && proposal.options) {
+      chooseAlt(+el.dataset.alt);
+      return;
+    }
     if (el && run(el.dataset.cmd)) {
       showToast(el.dataset.action);
       sendAck(el.dataset.action, true);
@@ -1049,6 +1079,11 @@
     setTimeout(() => { flash.className = ''; }, 450);
     // a pending AI proposal captures the flick as yes/no
     if (proposal) {
+      if (proposal.options) {
+        if (dir === 'right') chooseAlt(0);
+        else dismissAlternatives();
+        return;
+      }
       const p = proposal;
       proposal = null;
       clearTimeout(proposalTimer);
@@ -1345,9 +1380,45 @@
     }
   }
 
-  // An AI proposal awaiting the user's yes/no (flick right / left)
+  // An AI proposal awaiting the user's yes/no (flick right / left), or a
+  // set of alternative readings awaiting a pick ({options: [...]})
   let proposal = null;
   let proposalTimer = null;
+
+  function showAlternatives(say, alts) {
+    proposal = { options: alts };
+    clearTimeout(proposalTimer);
+    proposalTimer = setTimeout(() => {
+      if (proposal && proposal.options) { proposal = null; hideChooser(); hideBubble(); showToast('suggestion expired'); }
+    }, 20000);
+    showBubble((say || 'Did you mean:'), false, true, 'tap an option · flick → = first · ← = none');
+    chooser.innerHTML = alts.map((a, i) =>
+      '<button class="altbtn" data-action="' + esc(a.label) + '" data-alt="' + i + '">' +
+      '<span class="n">' + (i + 1) + '</span>' + esc(a.label) + '</button>').join('');
+    chooser.classList.add('show');
+  }
+  function hideChooser() {
+    chooser.classList.remove('show');
+    chooser.innerHTML = '';
+  }
+  function chooseAlt(i) {
+    if (!proposal || !proposal.options || !proposal.options[i]) return;
+    const a = proposal.options[i];
+    proposal = null;
+    clearTimeout(proposalTimer);
+    hideChooser();
+    applyAssistant(Array.isArray(a.actions) ? a.actions : [], Array.isArray(a.edits) ? a.edits : []);
+    showBubble('✓ ' + a.label);
+    sendAck(a.label, true);
+  }
+  function dismissAlternatives() {
+    proposal = null;
+    clearTimeout(proposalTimer);
+    hideChooser();
+    hideBubble();
+    showToast('okay, never mind');
+    sendAck('Dismissed', false);
+  }
 
   function applyAssistant(actions, edits) {
     for (const cmd of actions) {
@@ -1446,7 +1517,12 @@
     pending = null;
     const actions = Array.isArray(msg.actions) ? msg.actions : [];
     const edits = Array.isArray(msg.edits) ? msg.edits : [];
+    const alts = Array.isArray(msg.alternatives) ? msg.alternatives.filter((a) => a && typeof a.label === 'string') : [];
 
+    if (alts.length >= 2) {
+      showAlternatives(msg.say, alts.slice(0, 3));
+      return;
+    }
     if ((actions.length || edits.length) && msg.confidence !== 'high') {
       // the model proposes; the user confirms with a flick
       proposal = { actions, edits };
@@ -1518,10 +1594,11 @@
   }
 
   let bubbleTimer = null;
-  function showBubble(text, thinking, sticky) {
+  function showBubble(text, thinking, sticky, hint) {
     bubble.innerHTML = '<span class="who">✨ assistant</span>' +
       String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;') +
-      (sticky ? '<br><span style="color:var(--muted);font-size:11px;">flick right = yes · flick left = no</span>' : '');
+      (sticky ? '<br><span style="color:var(--muted);font-size:11.5px;">' +
+        (hint || 'flick right = yes · flick left = no') + '</span>' : '');
     bubble.classList.toggle('thinking', !!thinking);
     bubble.classList.add('show');
     clearTimeout(bubbleTimer);

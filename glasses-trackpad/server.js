@@ -16,7 +16,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 11; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 12; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -57,9 +57,12 @@ Respond with ONLY compact JSON, no markdown fences:
 {"say": "<one or two short sentences to show the user>",
  "confidence": "high" | "normal",
  "actions": ["<cmd>", ...],
- "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)", "note": "<2-3 sentence caption shown under the target, e.g. an explanation (optional)>"}]}
+ "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)", "note": "<2-3 sentence caption shown under the target, e.g. an explanation (optional)>"}],
+ "alternatives": [{"label": "<short reading, a few words>", "actions": [...], "edits": [...]}] (optional, see AMBIGUITY)}
 - actions: for interactive intent; each cmd copied EXACTLY from elements
 - edits: for corrective intent; target copied EXACTLY from elements' cmd or contents' id
+
+AMBIGUITY: when the drawing has 2-3 genuinely different plausible readings, do NOT guess and do NOT return empty arrays - return "alternatives" (2-3 entries, most likely FIRST), each with a short label and the actions/edits that reading would run, and set "say" to a short question like "Did you mean:". Leave the top-level actions/edits empty in that case. The glasses list the options; the user taps one or flicks right for the first.
 
 For GESTURES, always make your best guess at a concrete action or edit - never return empty actions AND empty edits unless the drawing touches nothing recognizable at all. (Handwritten queries are exempt: answering them in "say" is enough.)
 confidence "high" = the intent is unmistakable (e.g. a plain circle around one button or checklist item); your actions/edits run immediately and "say" states what you did.
@@ -85,9 +88,20 @@ function parseInterpretation(raw) {
         ? parsed.ideas.filter(i => i && typeof i.title === 'string')
             .map(({ title, tag, tags, details }) => ({ title, tag, tags, details })).slice(0, 8)
         : [],
+      alternatives: Array.isArray(parsed.alternatives)
+        ? parsed.alternatives.filter(a => a && typeof a.label === 'string').slice(0, 3)
+            .map(a => ({
+              label: a.label,
+              actions: Array.isArray(a.actions) ? a.actions.filter(x => typeof x === 'string') : [],
+              edits: Array.isArray(a.edits)
+                ? a.edits.filter(e => e && typeof e.target === 'string')
+                    .map(({ target, text, style, note }) => ({ target, text, style, note }))
+                : [],
+            }))
+        : [],
     };
   } catch {
-    return { say: text.slice(0, 140), confidence: 'normal', actions: [], edits: [], lines: [], ideas: [] };
+    return { say: text.slice(0, 140), confidence: 'normal', actions: [], edits: [], lines: [], ideas: [], alternatives: [] };
   }
 }
 
@@ -273,7 +287,7 @@ wss.on('connection', (ws) => {
         .then((r) => {
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
           console.log(`[${tag}] (${r.confidence}) "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
-          sendTo('display', { type: 'assistant', ai: true, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits, lines: r.lines, ideas: r.ideas });
+          sendTo('display', { type: 'assistant', ai: true, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits, lines: r.lines, ideas: r.ideas, alternatives: r.alternatives });
           sendTo('trackpad', { type: 'ack', action: r.say, hit: r.actions.length > 0 || r.edits.length > 0 });
         })
         .catch((err) => {

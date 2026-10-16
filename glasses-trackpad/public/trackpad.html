@@ -135,9 +135,10 @@
 <div id="pad">
   <div id="padlabel">
     <div><b>wrist trackpad</b></div>
-    <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; pan / scroll</div>
+    <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; scroll</div>
     <div>flick right &mdash; yes / next &nbsp;&middot;&nbsp; flick left &mdash; no / back</div>
-    <div>draw mode: circle &mdash; select/correct &nbsp;&middot;&nbsp; strike &mdash; dismiss &nbsp;&middot;&nbsp; underline &mdash; emphasize &nbsp;&middot;&nbsp; scribble &mdash; redo</div>
+    <div><b>hold</b> &mdash; draw/cursor &nbsp;&middot;&nbsp; <b>double-tap</b> &mdash; interact/correct</div>
+    <div>draw: circle &mdash; info &nbsp;&middot;&nbsp; strike &mdash; dismiss &nbsp;&middot;&nbsp; write words</div>
   </div>
 </div>
 
@@ -300,6 +301,34 @@
   let strokeLive = false;   // draw mode: stroke already streaming to display
   let strokeBuf = [];       // draw mode: buffered move deltas until tap/draw is decided
 
+  // Eyes-free mode switching (phone held at your side, out of sight):
+  // hold still ~0.6s = toggle draw/cursor; double-tap = toggle interact/correct.
+  // Single taps are therefore dispatched after a short delay.
+  const LONGPRESS_MS = 550;
+  const DOUBLETAP_MS = 300;
+  let longPressTimer = null, longPressFired = false;
+  let lastTapAt = 0, pendingTapTimer = null;
+
+  function queueTap() {
+    const now = performance.now();
+    if (pendingTapTimer && now - lastTapAt < DOUBLETAP_MS) {
+      // double-tap: toggle interact/correct instead of two clicks
+      clearTimeout(pendingTapTimer);
+      pendingTapTimer = null;
+      lastTapAt = 0;
+      setIntent(drawIntent === 'interact' ? 'correct' : 'interact');
+      vibrate([20, 40, 20, 40, 20]);
+      return;
+    }
+    lastTapAt = now;
+    clearTimeout(pendingTapTimer);
+    pendingTapTimer = setTimeout(() => {
+      pendingTapTimer = null;
+      send({ type: 'tap' });
+      vibrate(15);
+    }, DOUBLETAP_MS - 20);
+  }
+
   // Drawing is relative, like the cursor: the pen starts wherever the
   // cursor is on the glasses and finger movement drags it, leaving ink.
   function sendDrawMove(dx, dy) {
@@ -318,6 +347,21 @@
     active.set(ev.pointerId, { x: p.x, y: p.y, startX: p.x, startY: p.y, startT: performance.now() });
     showDot(ev.pointerId, p.x, p.y);
     mode = active.size >= 2 ? 'scroll' : 'move';
+    clearTimeout(longPressTimer);
+    longPressFired = false;
+    if (active.size === 1) {
+      const id = ev.pointerId;
+      longPressTimer = setTimeout(() => {
+        const st = active.get(id);
+        if (!st || active.size !== 1 || strokeLive) return;
+        if (Math.hypot(st.x - st.startX, st.y - st.startY) < TAP_SLOP) {
+          longPressFired = true;
+          setInputMode(inputMode === 'draw' ? 'cursor' : 'draw');
+          vibrate(80);
+          strokeBuf = [];
+        }
+      }, LONGPRESS_MS);
+    }
     if (active.size === 1 && inputMode === 'draw') {
       strokeLive = false;
       strokeBuf = [];
@@ -338,6 +382,8 @@
     st.x = p.x;
     st.y = p.y;
     showDot(ev.pointerId, p.x, p.y);
+
+    if (Math.hypot(p.x - st.startX, p.y - st.startY) > TAP_SLOP) clearTimeout(longPressTimer);
 
     if (dx === 0 && dy === 0) return;
 
@@ -376,6 +422,16 @@
     if (!st) return;
     active.delete(ev.pointerId);
     hideDot(ev.pointerId);
+    clearTimeout(longPressTimer);
+
+    if (longPressFired && active.size === 0) {
+      // the hold already switched modes - swallow this touch entirely
+      longPressFired = false;
+      strokeLive = false;
+      strokeBuf = [];
+      mode = null;
+      return;
+    }
 
     if (mode === 'move' && active.size === 0) {
       const dt = performance.now() - st.startT;
@@ -387,8 +443,7 @@
           send({ type: 'draw', phase: 'end' });
           vibrate(12);
         } else if (dt < TAP_MS && dist < TAP_SLOP) {
-          send({ type: 'tap' }); // quick tap still clicks in draw mode
-          vibrate(15);
+          queueTap(); // quick tap still clicks in draw mode
         }
         strokeLive = false;
         strokeBuf = [];
@@ -400,8 +455,7 @@
           send({ type: 'swipe', dir: dx > 0 ? 'right' : 'left' });
           vibrate(25);
         } else if (dt < TAP_MS && dist < TAP_SLOP) {
-          send({ type: 'tap' });
-          vibrate(15);
+          queueTap();
         }
       }
     }
