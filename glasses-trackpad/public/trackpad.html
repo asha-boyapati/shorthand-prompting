@@ -137,7 +137,7 @@
     <div><b>wrist trackpad</b></div>
     <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; scroll</div>
     <div>flick right &mdash; yes / next &nbsp;&middot;&nbsp; flick left &mdash; no / back</div>
-    <div><b>hold</b> &mdash; draw/cursor &nbsp;&middot;&nbsp; <b>double-tap</b> &mdash; interact/correct</div>
+    <div><b>hold</b> &mdash; draw/cursor &nbsp;&middot;&nbsp; <b>double-tap</b> &mdash; interact/correct &nbsp;&middot;&nbsp; <b>shake</b> &mdash; cancel/home</div>
     <div>draw: circle &mdash; info &nbsp;&middot;&nbsp; strike &mdash; dismiss &nbsp;&middot;&nbsp; write words</div>
   </div>
 </div>
@@ -340,8 +340,44 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
+  // --- shake the phone = cancel / go home (no looking, no buttons) ---
+  let motionReady = false;
+  let shakeCount = 0, lastShakeHit = 0, lastShakeSent = 0;
+  function onMotion(e) {
+    const a = e.acceleration;
+    if (!a) return;
+    const mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+    const now = performance.now();
+    if (mag > 15 && now - lastShakeHit > 120) {
+      shakeCount = (now - lastShakeHit < 700) ? shakeCount + 1 : 1;
+      lastShakeHit = now;
+      if (shakeCount >= 3 && now - lastShakeSent > 1500) {
+        lastShakeSent = now;
+        shakeCount = 0;
+        send({ type: 'shake' });
+        vibrate([60, 60, 60]);
+        showBanner('\u{1F300} shake — cancel / home');
+      }
+    }
+  }
+  function enableMotion() {
+    if (motionReady) return;
+    motionReady = true;
+    try {
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        // iOS: must be requested from a user gesture
+        DeviceMotionEvent.requestPermission()
+          .then((s) => { if (s === 'granted') window.addEventListener('devicemotion', onMotion); })
+          .catch(() => {});
+      } else {
+        window.addEventListener('devicemotion', onMotion);
+      }
+    } catch {}
+  }
+
   pad.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
+    enableMotion(); // first touch doubles as the iOS motion-permission gesture
     try { pad.setPointerCapture(ev.pointerId); } catch {}
     const p = padPos(ev);
     active.set(ev.pointerId, { x: p.x, y: p.y, startX: p.x, startY: p.y, startT: performance.now() });

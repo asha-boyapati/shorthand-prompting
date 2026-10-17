@@ -358,12 +358,12 @@
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
   // ====================== prompt catalog ======================
+  // short labels: glasses are read in 2-second glances
   const PROMPTS = [
-    { id: 'quiz',      text: 'Quiz me on addition and multiplication', ready: true },
-    { id: 'cook',      text: 'Help me cook pasta carbonara',           ready: true },
-    { id: 'ideate',    text: 'Help me brainstorm hackathon project ideas', ready: true },
-    { id: 'translate', text: 'Translate what I’m looking at to Spanish', ready: true },
-    { id: 'piano',     text: 'Teach me basic piano', ready: true },
+    { id: 'quiz',      text: 'Math quiz', ready: true },
+    { id: 'cook',      text: 'Cook carbonara', ready: true },
+    { id: 'ideate',    text: 'Hackathon ideas', ready: true },
+    { id: 'translate', text: 'Translate to Spanish', ready: true },
   ];
 
   // ====================== app state ======================
@@ -558,10 +558,8 @@
     }
     const q = qz.queue[qz.pos];
     const btns = qz.revealed
-      ? '<button class="pill good" data-action="Got it" data-cmd="quiz:got">Got it</button>' +
-        '<button class="pill bad" data-action="Missed it" data-cmd="quiz:miss">Missed it</button>'
-      : '<button class="pill" data-action="Reveal answer" data-cmd="quiz:reveal">Reveal answer</button>' +
-        '<button class="pill" data-action="Skip" data-cmd="quiz:skip">Skip</button>';
+      ? ''
+      : '<button class="pill" data-action="Reveal answer" data-cmd="quiz:reveal">Reveal</button>';
     card.innerHTML =
       '<div class="head"><span data-content="quiz-progress">QUIZ · ' + (qz.pos + 1) + '/' + qz.queue.length + '</span>' +
         '<span class="chip ' + q.cls + '" data-content="quiz-topic">' + q.topic + '</span></div>' +
@@ -615,12 +613,7 @@
         '<div class="steptext" data-content="cook-step">' + s.text + '</div>' + timerHtml +
         '<div class="hint">→ next · ← back</div>' +
       '</div>' +
-      '<div class="pillrow">' +
-        '<button class="pill" data-action="Previous step" data-cmd="cook:back">← Back</button>' +
-        '<button class="pill good" data-action="Next step" data-cmd="cook:next">' +
-          (ck.step === STEPS.length - 1 ? 'Finish' : 'Next →') + '</button>' +
-        homeBtn() +
-      '</div>';
+      '<div class="pillrow">' + homeBtn() + '</div>';
   }
 
   function renderIdeate() {
@@ -679,8 +672,6 @@
       '<div class="pillrow">' +
         '<button class="pill" data-action="' + (id8.expanded ? 'Hide details' : 'Show details') + '" data-cmd="ideate:details">' +
           (id8.expanded ? 'Less' : 'Details') + '</button>' +
-        '<button class="pill good" data-action="Shortlist idea" data-cmd="ideate:keep">⭐ Keep</button>' +
-        '<button class="pill bad" data-action="Discard idea" data-cmd="ideate:drop">Drop</button>' +
         homeBtn() +
       '</div>';
   }
@@ -724,7 +715,6 @@
       '<div class="pillrow">' +
         '<button class="pill" data-action="' + (allShown ? 'Show originals only' : 'Translate everything') + '" data-cmd="tr:all">' +
           (allShown ? 'Hide all' : 'Translate all') + '</button>' +
-        '<button class="pill" data-action="Next scene" data-cmd="tr:next">Next scene →</button>' +
         homeBtn() +
       '</div>';
   }
@@ -1020,6 +1010,7 @@
       case 'scroll': doScroll(+msg.dy || 0); break;
       case 'draw': doDraw(msg); break;
       case 'photo': doPhoto(msg); break;
+      case 'shake': doShake(); break;
       case 'assistant': onAssistant(msg); break;
       case 'mode':
         cursor.classList.toggle('pen', msg.mode === 'draw');
@@ -1104,6 +1095,35 @@
       sendAck(sc[1], true);
     } else {
       sendAck('swipe does nothing here', false);
+    }
+  }
+
+  // shake = universal "never mind": cancel whatever is open, else go home
+  function doShake() {
+    clearInk(false);
+    if (proposal) {
+      if (proposal.options) { dismissAlternatives(); return; }
+      proposal = null;
+      clearTimeout(proposalTimer);
+      hideBubble();
+      showToast('cancelled');
+      sendAck('Cancelled', false);
+      return;
+    }
+    if (pending) {
+      pending = null;
+      clearTimeout(pendingTimer);
+      hideBubble();
+      showToast('cancelled');
+      sendAck('Cancelled', false);
+      return;
+    }
+    if (screen !== 'home') {
+      run('home');
+      showToast('⌂ home');
+      sendAck('Home', true);
+    } else {
+      showToast('nothing to cancel');
     }
   }
 

@@ -16,7 +16,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 12; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 13; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -65,8 +65,8 @@ Respond with ONLY compact JSON, no markdown fences:
 AMBIGUITY: when the drawing has 2-3 genuinely different plausible readings, do NOT guess and do NOT return empty arrays - return "alternatives" (2-3 entries, most likely FIRST), each with a short label and the actions/edits that reading would run, and set "say" to a short question like "Did you mean:". Leave the top-level actions/edits empty in that case. The glasses list the options; the user taps one or flicks right for the first.
 
 For GESTURES, always make your best guess at a concrete action or edit - never return empty actions AND empty edits unless the drawing touches nothing recognizable at all. (Handwritten queries are exempt: answering them in "say" is enough.)
-confidence "high" = the intent is unmistakable (e.g. a plain circle around one button or checklist item); your actions/edits run immediately and "say" states what you did.
-confidence "normal" = everything else; the glasses show your proposal and the user confirms with a flick, so phrase "say" as a short question naming the concrete thing you will do: "Should I simplify this step?", "Cross off the eggs?", "Make the question bigger?".`;
+confidence "high" = the intent is unmistakable; your actions/edits run immediately and "say" states what you did.
+confidence "normal" = everything else. DEFAULT to returning 2-3 "alternatives" (see AMBIGUITY) so the user picks what they meant - that beats guessing wrong. Use a single yes/no proposal (actions/edits + a question in "say") only when there is exactly one sensible reading.`;
 
 function parseInterpretation(raw) {
   const text = String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
