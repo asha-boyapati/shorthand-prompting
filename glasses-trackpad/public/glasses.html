@@ -372,14 +372,14 @@
 
   // --- quiz state ---
   const qz = {};
-  function quizReset() {
+  function quizReset(total = 20) {
     const qs = [];
     const ri = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < Math.ceil(total / 2); i++) {
       const a = ri(10, 99), b = ri(10, 99);
       qs.push({ topic: 'Addition', cls: 'add', text: a + ' + ' + b + ' = ?', answer: a + b });
     }
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < Math.floor(total / 2); i++) {
       const a = ri(2, 12), b = ri(2, 12);
       qs.push({ topic: 'Multiplication', cls: 'mult', text: a + ' × ' + b + ' = ?', answer: a * b });
     }
@@ -800,6 +800,14 @@
         return true;
       }
       if (verb === 'mixed') { quizReset(); screen = 'quiz'; render(); return true; }
+      if (verb === 'length') {
+        const n = Math.max(2, Math.min(50, parseInt(arg, 10) || 0));
+        if (!n) return false;
+        quizReset(n);
+        screen = 'quiz';
+        render();
+        return true;
+      }
       if (verb === 'restart') quizReset();
       else if (qz.finished) return false;
       else if (verb === 'reveal') qz.revealed = true;
@@ -1350,6 +1358,9 @@
           { cmd: 'quiz:only:addition', desc: 'restart the quiz with addition questions only' },
           { cmd: 'quiz:only:multiplication', desc: 'restart the quiz with multiplication questions only' },
           { cmd: 'quiz:mixed', desc: 'restart the quiz with mixed topics' },
+          { cmd: 'quiz:length:5', desc: 'restart as a short 5-question quiz' },
+          { cmd: 'quiz:length:10', desc: 'restart with 10 questions' },
+          { cmd: 'quiz:length:30', desc: 'restart with 30 questions (quiz:length:<n> accepts any 2-50)' },
         ] : [],
         drawing: {
           // several short strokes (or one wide scribble) usually means the

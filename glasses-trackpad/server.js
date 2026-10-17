@@ -16,7 +16,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 13; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 14; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -27,7 +27,7 @@ The user wears glasses with a small HUD and draws strokes on a wrist trackpad. Y
     If it is handwriting: transcribe it and treat the text as something the user just SAID to you. The circled/crossed/underlined flags are then meaningless artifacts of writing on top of the UI - IGNORE them completely (writing "tools" across the ingredient list is a question about tools, NOT a request to cross off ingredients). Respond to the meaning in the screen's context: a written answer to the on-screen question means they are answering it (check it: if right, say so and use the matching action; if wrong, say the correct answer); "yes"/"no" answers your previous question; any other written word or phrase is a request or query (e.g. "tools" while cooking -> briefly list the tools the recipe needs). For written queries an informative "say" with empty actions is a GOOD response - the act-first rule below applies to gestures, not writing.
     If it is a gesture: select, activate, answer, navigate per the vocabulary below.
   "correct" = the drawing critiques the DISPLAY itself: the marked part is a feature they want changed or explained. Propose changing, rewriting, moving or hiding it (edits), explain it (a "note" edit), or use a matching extraCommand (e.g. circling the quiz topic chip -> offer to switch the quiz to one topic, or to hide the chip with style dim). Do not treat marks as app input in this mode.
-- extraCommands: additional cmds that are valid in "actions" but have no on-screen element (each with a description)
+- extraCommands: additional cmds that are valid in "actions" but have no on-screen element (each with a description). Some are parameterized - a desc like 'quiz:length:<n> accepts any 2-50' means you may construct the cmd with your own number (e.g. the user circles the progress counter: offering a different quiz length is a natural alternative)
 - drawing: one or more strokes made in quick succession (a complex drawing - an X, an arrow, a question mark, a letter - spans several strokes; interpret them TOGETHER as one gesture). Each stroke has a shape guess (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length and bounding box in the 480x400 HUD; the shape guesses are crude, trust the screenshot over them for multi-stroke drawings
 - elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined / touched by the drawing)
 - contents: non-interactive display text regions (id, current text, same flags)
