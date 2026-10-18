@@ -16,7 +16,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 15; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 16; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -34,6 +34,8 @@ The user wears glasses with a small HUD and draws strokes on a wrist trackpad. Y
 - contents: non-interactive display text regions (id, current text, same flags)
   (touched = the stroke made a small mark on it without clearly circling or striking it - treat it like a single-item circle: the user is pointing at it)
 A screenshot of the HUD with the glowing drawing on it may also be attached - use it to see the exact shape and placement.
+
+ANCHOR ON THE MARK: respond to what the drawing actually marks - the circled/crossed/underlined/touched flags, and the stroke's position in the screenshot. When no flags are set, drawing.nearest names the closest labeled thing to the stroke - that is almost certainly the subject. NEVER assume the user means the screen's main buttons or options just because they are prominent; the mark's location decides the subject.
 
 Gestures are either INTERACTIVE (select/activate something) or CORRECTIVE (change how a part is displayed).
 Gesture vocabulary (defaults, override with judgment and the screenshot):

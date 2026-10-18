@@ -549,7 +549,7 @@
       (p.ready ? '' : ' <span style="margin-left:auto;font-size:10px;color:var(--border);">soon</span>') +
       '</div>').join('');
     card.innerHTML =
-      '<div class="head"><span>ASSISTANT · what do you want to do?</span><span class="chip task">' + PROMPTS.length + ' prompts</span></div>' +
+      '<div class="head"><span data-content="home-title">ASSISTANT · what do you want to do?</span><span class="chip task">' + PROMPTS.length + ' prompts</span></div>' +
       '<div class="scrollable" id="scrollable">' + rows + '</div>' +
       '<div class="hint" style="padding-top:6px;">tap or circle a prompt</div>';
   }
@@ -557,7 +557,7 @@
   function renderQuiz() {
     if (qz.finished) {
       card.innerHTML =
-        '<div class="head"><span>QUIZ · done</span><span class="chip">Results</span></div>' +
+        '<div class="head"><span data-content="quiz-progress">QUIZ · done</span><span class="chip">Results</span></div>' +
         '<div class="center">' +
           '<div class="score-line"><span class="g">' + qz.got + ' got it</span> · ' +
           '<span class="m">' + qz.missed + ' missed</span> · ' +
@@ -588,7 +588,7 @@
         ' data-cmd="cook:ing:' + i + '" data-multi="1"><span class="box">' +
         (ck.checked[i] ? '✓' : '') + '</span>' + esc(ing) + '</div>').join('');
       card.innerHTML =
-        '<div class="head"><span>COOKING · carbonara</span><span class="chip task" data-content="cook-chip">Ingredients</span></div>' +
+        '<div class="head"><span data-content="cook-progress">COOKING · carbonara</span><span class="chip task" data-content="cook-chip">Ingredients</span></div>' +
         '<div class="scrollable" id="scrollable">' + rows + '</div>' +
         '<div class="hint" style="padding:4px 0;">tap = check · circle = info</div>' +
         '<div class="pillrow"><button class="pill good" data-action="Start cooking" data-cmd="cook:start">Start cooking</button>' + homeBtn() + '</div>';
@@ -596,7 +596,7 @@
     }
     if (ck.phase === 'done') {
       card.innerHTML =
-        '<div class="head"><span>COOKING · done</span><span class="chip task">Buon appetito</span></div>' +
+        '<div class="head"><span data-content="cook-progress">COOKING · done</span><span class="chip task">Buon appetito</span></div>' +
         '<div class="center">' +
           '<div class="bigq">\u{1F35D} Carbonara complete</div>' +
           '<div class="hint">' + ck.timersDone + ' timer' + (ck.timersDone === 1 ? '' : 's') + ' finished · ' +
@@ -633,8 +633,8 @@
         '<button class="pill" style="margin:4px;" data-action="' + esc(o) + '" data-cmd="ideate:opt:' + i + '">' + esc(o) + '</button>').join('');
       const answered = id8.answers.map((a) => a.a).join(' · ');
       card.innerHTML =
-        '<div class="head"><span>IDEATION · question ' + (id8.qi + 1) + '/' + INTAKE.length + '</span>' +
-          '<span class="chip task">Hackathon</span></div>' +
+        '<div class="head"><span data-content="ideate-progress">IDEATION · question ' + (id8.qi + 1) + '/' + INTAKE.length + '</span>' +
+          '<span class="chip task" data-content="ideate-chip">Hackathon</span></div>' +
         '<div class="center">' +
           '<div class="bigq" style="font-size:24px;" data-content="ideate-question">' + esc(Q.q) + '</div>' +
           '<div style="display:flex;flex-wrap:wrap;justify-content:center;max-width:430px;">' + opts + '</div>' +
@@ -646,7 +646,7 @@
     }
     if (id8.phase === 'loading') {
       card.innerHTML =
-        '<div class="head"><span>IDEATION</span><span class="chip task">Hackathon</span></div>' +
+        '<div class="head"><span data-content="ideate-progress">IDEATION</span><span class="chip task" data-content="ideate-chip">Hackathon</span></div>' +
         '<div class="center"><div class="bigq" style="font-size:22px;">coming up with ideas…</div></div>' +
         '<div class="pillrow">' + homeBtn() + '</div>';
       return;
@@ -657,7 +657,7 @@
         ? id8.kept.map(i => '⭐ ' + esc(list[i].title)).join('<br>')
         : 'nothing shortlisted — harsh crowd';
       card.innerHTML =
-        '<div class="head"><span>IDEATION · done</span><span class="chip task">Shortlist</span></div>' +
+        '<div class="head"><span data-content="ideate-progress">IDEATION · done</span><span class="chip task">Shortlist</span></div>' +
         '<div class="scrollable center" id="scrollable">' +
           '<div class="shortlist">' + kept + '</div>' +
           '<div class="hint">' + id8.kept.length + ' kept · ' + id8.dropped.length + ' discarded</div>' +
@@ -670,7 +670,7 @@
       ? '<ul class="details" data-content="idea-details">' + idea.details.map(d => '<li>' + esc(d) + '</li>').join('') + '</ul>'
       : '';
     card.innerHTML =
-      '<div class="head"><span>IDEATION · ' + (id8.pos + 1) + '/' + list.length + '</span>' +
+      '<div class="head"><span data-content="ideate-progress">IDEATION · ' + (id8.pos + 1) + '/' + list.length + '</span>' +
         '<span class="chip task" data-content="ideate-chip">Hackathon</span></div>' +
       '<div class="scrollable center" id="scrollable">' +
         '<div class="idea-title" data-content="idea-title">' + esc(idea.title) + '</div>' +
@@ -695,7 +695,7 @@
           ? lines.map((l) => '<div class="tline">' + esc(l.orig) + '<span class="es">→ ' + esc(l.es) + '</span></div>').join('')
           : '<div class="hint" style="padding:8px;">no readable text found in the photo</div>');
       card.innerHTML =
-        '<div class="head"><span>TRANSLATE · your photo</span><span class="chip task">\u{1F4F7} → Spanish</span></div>' +
+        '<div class="head"><span data-content="translate-progress">TRANSLATE · your photo</span><span class="chip task">\u{1F4F7} → Spanish</span></div>' +
         '<div class="scrollable" id="scrollable">' +
           '<div class="camera"><div class="camlabel">◉ your camera</div>' +
             '<img src="' + tr.photoImage + '" style="width:100%;border-radius:8px;max-height:140px;object-fit:cover;" alt="">' +
@@ -1448,6 +1448,22 @@
       ...flagsFor(el),
     }));
 
+    // when the drawing touches nothing, name the closest labeled thing so
+    // the model anchors on the mark's position, not on prominent buttons
+    let nearest;
+    const anyFlag = [...elements, ...contents].some((e) => e.circled || e.crossed || e.underlined || e.touched);
+    if (!anyFlag) {
+      const dcx = (minX + maxX) / 2, dcy = (minY + maxY) / 2;
+      let best = null;
+      for (const el of card.querySelectorAll('[data-action],[data-content]')) {
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        const d = Math.hypot(r.left - rect.left + r.width / 2 - dcx, r.top - rect.top + r.height / 2 - dcy);
+        if (!best || d < best.d) best = { d, label: el.dataset.action || el.dataset.content };
+      }
+      if (best) nearest = { label: best.label, distance: Math.round(best.d) };
+    }
+
     // offline fallback: a circle selects circled things; a strike acts on
     // what it crossed through
     const anyClosed = an.some((a) => a.closed);
@@ -1486,6 +1502,7 @@
             bbox: { x: Math.round(a.minX), y: Math.round(a.minY), w: Math.round(a.maxX - a.minX), h: Math.round(a.maxY - a.minY) },
           })),
           bbox: { x: Math.round(minX), y: Math.round(minY), w: Math.round(maxX - minX), h: Math.round(maxY - minY) },
+          nearest,
         },
         elements: elements.map(({ label, cmd, circled, crossed, underlined, touched }) => ({ label, cmd, circled, crossed, underlined, touched })),
         contents,
