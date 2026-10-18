@@ -404,8 +404,13 @@
   ];
   const ck = {};
   function cookReset() {
-    Object.assign(ck, { phase: 'ingredients', checked: INGREDIENTS.map(() => false), step: 0,
-                        timer: null, remaining: 0, timersDone: 0 });
+    Object.assign(ck, {
+      phase: 'ingredients',
+      ingredients: INGREDIENTS.slice(),
+      steps: STEPS.map((s) => ({ ...s })),
+      checked: INGREDIENTS.map(() => false),
+      step: 0, timer: null, remaining: 0, timersDone: 0,
+    });
   }
   function stopTimer() {
     if (ck.timer) { clearInterval(ck.timer); ck.timer = null; }
@@ -464,11 +469,16 @@
   ];
   const tr = {};
   function translateReset() {
-    Object.assign(tr, { scene: 0, revealed: SCENES[0].lines.map(() => false), photoImage: null, photoLines: null });
+    Object.assign(tr, {
+      scene: 0,
+      scenes: SCENES.map((s) => ({ name: s.name, lines: s.lines.map((l) => ({ ...l })) })),
+      revealed: SCENES[0].lines.map(() => false),
+      photoImage: null, photoLines: null,
+    });
   }
   function translateScene(delta) {
-    tr.scene = (tr.scene + delta + SCENES.length) % SCENES.length;
-    tr.revealed = SCENES[tr.scene].lines.map(() => false);
+    tr.scene = (tr.scene + delta + tr.scenes.length) % tr.scenes.length;
+    tr.revealed = tr.scenes[tr.scene].lines.map(() => false);
   }
 
   // --- piano state ---
@@ -573,7 +583,7 @@
 
   function renderCook() {
     if (ck.phase === 'ingredients') {
-      const rows = INGREDIENTS.map((ing, i) =>
+      const rows = ck.ingredients.map((ing, i) =>
         '<div class="ing' + (ck.checked[i] ? ' checked' : '') + '" data-action="' + esc(ing) + '"' +
         ' data-cmd="cook:ing:' + i + '" data-multi="1"><span class="box">' +
         (ck.checked[i] ? '✓' : '') + '</span>' + esc(ing) + '</div>').join('');
@@ -590,12 +600,12 @@
         '<div class="center">' +
           '<div class="bigq">\u{1F35D} Carbonara complete</div>' +
           '<div class="hint">' + ck.timersDone + ' timer' + (ck.timersDone === 1 ? '' : 's') + ' finished · ' +
-            ck.checked.filter(Boolean).length + '/' + INGREDIENTS.length + ' ingredients checked</div>' +
+            ck.checked.filter(Boolean).length + '/' + ck.ingredients.length + ' ingredients checked</div>' +
         '</div>' +
         '<div class="pillrow"><button class="pill" data-action="Cook again" data-cmd="cook:restart">Cook again</button>' + homeBtn() + '</div>';
       return;
     }
-    const s = STEPS[ck.step];
+    const s = ck.steps[ck.step];
     let timerHtml = '';
     if (s.timer) {
       if (ck.timer) {
@@ -607,7 +617,7 @@
       }
     }
     card.innerHTML =
-      '<div class="head"><span>COOKING · step ' + (ck.step + 1) + '/' + STEPS.length + '</span>' +
+      '<div class="head"><span data-content="cook-progress">COOKING · step ' + (ck.step + 1) + '/' + ck.steps.length + '</span>' +
         '<span class="chip task" data-content="cook-chip">Carbonara</span></div>' +
       '<div class="center">' +
         '<div class="steptext" data-content="cook-step">' + s.text + '</div>' + timerHtml +
@@ -698,7 +708,7 @@
         '</div>';
       return;
     }
-    const sc = SCENES[tr.scene];
+    const sc = tr.scenes[tr.scene];
     const allShown = tr.revealed.every(Boolean);
     const rows = sc.lines.map((l, i) =>
       '<div class="tline" data-action="' + esc(l.en) + '" data-cmd="tr:line:' + i + '" data-multi="1">' +
@@ -706,7 +716,7 @@
       (tr.revealed[i] ? '<span class="es">→ ' + esc(l.es) + '</span>' : '') +
       '</div>').join('');
     card.innerHTML =
-      '<div class="head"><span data-content="translate-progress">TRANSLATE · scene ' + (tr.scene + 1) + '/' + SCENES.length + '</span>' +
+      '<div class="head"><span data-content="translate-progress">TRANSLATE · scene ' + (tr.scene + 1) + '/' + tr.scenes.length + '</span>' +
         '<span class="chip task" data-content="translate-scene">' + esc(sc.name) + ' → Spanish</span></div>' +
       '<div class="scrollable" id="scrollable">' +
         '<div class="camera"><div class="camlabel">◉ what you’re looking at</div>' + rows + '</div>' +
@@ -824,12 +834,12 @@
       else if (verb === 'start') ck.phase = 'steps';
       else if (verb === 'next') {
         stopTimer();
-        if (ck.step >= STEPS.length - 1) ck.phase = 'done';
+        if (ck.step >= ck.steps.length - 1) ck.phase = 'done';
         else ck.step++;
       }
       else if (verb === 'back') { stopTimer(); if (ck.step > 0) ck.step--; }
       else if (verb === 'timer') {
-        const s = STEPS[ck.step];
+        const s = ck.steps[ck.step];
         if (!s.timer || ck.timer) return false;
         ck.remaining = s.timer;
         ck.timer = setInterval(() => {
@@ -850,7 +860,7 @@
     if (ns === 'tr') {
       if (verb === 'line') {
         const i = +arg;
-        if (!SCENES[tr.scene].lines[i]) return false;
+        if (!tr.scenes[tr.scene].lines[i]) return false;
         tr.revealed[i] = !tr.revealed[i];
       } else if (verb === 'all') {
         const show = !tr.revealed.every(Boolean);
@@ -1087,7 +1097,7 @@
       proposal = null;
       clearTimeout(proposalTimer);
       if (dir === 'right') {
-        applyAssistant(p.actions, p.edits);
+        applyAssistant(p.actions, p.edits, p.state);
         showBubble('✓ done');
         sendAck('Confirmed — done', true);
       } else {
@@ -1281,6 +1291,104 @@
 
   let drawIntent = 'interact';
 
+  // ---- the model's universal lever: read & replace live task state ----
+  function taskState() {
+    if (screen === 'quiz') {
+      return { quiz: { pos: qz.pos, revealed: qz.revealed, finished: qz.finished, got: qz.got, missed: qz.missed, skipped: qz.skipped, queue: qz.queue } };
+    }
+    if (screen === 'cook') {
+      return { cook: { phase: ck.phase, step: ck.step, ingredients: ck.ingredients, checked: ck.checked, steps: ck.steps } };
+    }
+    if (screen === 'ideate') {
+      return { ideate: { phase: id8.phase, pos: id8.pos, kept: id8.kept, answers: id8.answers, ideas: id8.ideas || IDEAS } };
+    }
+    if (screen === 'translate') {
+      return { translate: { scene: tr.scene, revealed: tr.revealed, scenes: tr.scenes } };
+    }
+    return {};
+  }
+
+  function applyState(s) {
+    if (!s || typeof s !== 'object') return false;
+    try {
+      let touched = false;
+      if (s.quiz && typeof s.quiz === 'object') {
+        const q = s.quiz;
+        if (Array.isArray(q.queue) && q.queue.length &&
+            q.queue.every((x) => x && typeof x.text === 'string')) {
+          qz.queue = q.queue.slice(0, 60).map((x) => ({
+            topic: String(x.topic || 'Mixed'),
+            cls: x.cls === 'mult' ? 'mult' : 'add',
+            text: String(x.text).slice(0, 80),
+            answer: typeof x.answer === 'number' || typeof x.answer === 'string' ? x.answer : '?',
+          }));
+        }
+        for (const k of ['pos', 'got', 'missed', 'skipped']) {
+          if (Number.isInteger(q[k]) && q[k] >= 0) qz[k] = q[k];
+        }
+        if (typeof q.revealed === 'boolean') qz.revealed = q.revealed;
+        qz.pos = Math.min(qz.pos, Math.max(0, qz.queue.length - 1));
+        qz.finished = typeof q.finished === 'boolean' ? q.finished : qz.finished && qz.pos >= qz.queue.length - 1;
+        if (screen !== 'quiz') screen = 'quiz';
+        touched = true;
+      }
+      if (s.cook && typeof s.cook === 'object') {
+        const c = s.cook;
+        if (Array.isArray(c.ingredients) && c.ingredients.length && c.ingredients.every((x) => typeof x === 'string')) {
+          ck.ingredients = c.ingredients.slice(0, 20).map((x) => x.slice(0, 60));
+        }
+        if (Array.isArray(c.steps) && c.steps.length && c.steps.every((x) => x && typeof x.text === 'string')) {
+          ck.steps = c.steps.slice(0, 20).map((x) => ({ text: x.text.slice(0, 120), timer: Number.isInteger(x.timer) ? x.timer : undefined }));
+          stopTimer();
+        }
+        if (Array.isArray(c.checked)) ck.checked = ck.ingredients.map((_, i) => !!c.checked[i]);
+        else if (ck.checked.length !== ck.ingredients.length) ck.checked = ck.ingredients.map((_, i) => !!ck.checked[i]);
+        if (['ingredients', 'steps', 'done'].includes(c.phase)) ck.phase = c.phase;
+        if (Number.isInteger(c.step)) ck.step = Math.max(0, Math.min(ck.steps.length - 1, c.step));
+        else ck.step = Math.min(ck.step, ck.steps.length - 1);
+        if (screen !== 'cook') screen = 'cook';
+        touched = true;
+      }
+      if (s.ideate && typeof s.ideate === 'object') {
+        const d = s.ideate;
+        if (Array.isArray(d.ideas) && d.ideas.length && d.ideas.every((x) => x && typeof x.title === 'string')) {
+          id8.ideas = d.ideas.slice(0, 12).map((x) => ({
+            title: String(x.title).slice(0, 40),
+            tag: String(x.tag || '').slice(0, 90),
+            tags: Array.isArray(x.tags) ? x.tags.map(String).slice(0, 3) : [],
+            details: Array.isArray(x.details) ? x.details.map(String).slice(0, 4) : [],
+          }));
+          id8.phase = 'cards';
+        }
+        if (Number.isInteger(d.pos)) id8.pos = Math.max(0, Math.min((id8.ideas || IDEAS).length - 1, d.pos));
+        if (Array.isArray(d.kept)) id8.kept = d.kept.filter(Number.isInteger);
+        if (screen !== 'ideate') screen = 'ideate';
+        touched = true;
+      }
+      if (s.translate && typeof s.translate === 'object') {
+        const v = s.translate;
+        if (Array.isArray(v.scenes) && v.scenes.length &&
+            v.scenes.every((x) => x && typeof x.name === 'string' && Array.isArray(x.lines))) {
+          tr.scenes = v.scenes.slice(0, 8).map((x) => ({
+            name: x.name.slice(0, 40),
+            lines: x.lines.slice(0, 12).map((l) => ({ en: String(l.en || '').slice(0, 90), es: String(l.es || '').slice(0, 90) })),
+          }));
+        }
+        if (Number.isInteger(v.scene)) tr.scene = Math.max(0, Math.min(tr.scenes.length - 1, v.scene));
+        else tr.scene = Math.min(tr.scene, tr.scenes.length - 1);
+        tr.revealed = Array.isArray(v.revealed)
+          ? tr.scenes[tr.scene].lines.map((_, i) => !!v.revealed[i])
+          : tr.scenes[tr.scene].lines.map((_, i) => !!tr.revealed[i]);
+        if (screen !== 'translate') screen = 'translate';
+        touched = true;
+      }
+      if (touched) render();
+      return touched;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function interpretStrokes() {
     const an = strokes.filter((s) => s.length >= 8).map(analyzeStroke);
     if (!an.length) { clearInk(true); return; }
@@ -1354,6 +1462,7 @@
       const payload = {
         screen,
         mode: drawIntent,
+        state: taskState(),
         extraCommands: screen === 'quiz' ? [
           { cmd: 'quiz:only:addition', desc: 'restart the quiz with addition questions only' },
           { cmd: 'quiz:only:multiplication', desc: 'restart the quiz with multiplication questions only' },
@@ -1438,7 +1547,7 @@
     proposal = null;
     clearTimeout(proposalTimer);
     hideChooser();
-    applyAssistant(Array.isArray(a.actions) ? a.actions : [], Array.isArray(a.edits) ? a.edits : []);
+    applyAssistant(Array.isArray(a.actions) ? a.actions : [], Array.isArray(a.edits) ? a.edits : [], a.state);
     showBubble('✓ ' + a.label);
     sendAck(a.label, true);
   }
@@ -1451,7 +1560,7 @@
     sendAck('Dismissed', false);
   }
 
-  function applyAssistant(actions, edits) {
+  function applyAssistant(actions, edits, state) {
     for (const cmd of actions) {
       const el = card.querySelector('[data-cmd="' + cmd + '"]');
       if (el) {
@@ -1482,6 +1591,7 @@
       el.classList.add('circled');
       setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 900);
     }
+    if (state) applyState(state);
   }
 
   // A photo from the phone camera: show it in the translate task and ask
@@ -1556,7 +1666,7 @@
     }
     if ((actions.length || edits.length) && msg.confidence !== 'high') {
       // the model proposes; the user confirms with a flick
-      proposal = { actions, edits };
+      proposal = { actions, edits, state: msg.state };
       clearTimeout(proposalTimer);
       proposalTimer = setTimeout(() => {
         if (proposal) { proposal = null; hideBubble(); showToast('suggestion expired'); }
@@ -1565,7 +1675,7 @@
       return;
     }
     showBubble(msg.say || '…');
-    applyAssistant(actions, edits);
+    applyAssistant(actions, edits, msg.state);
   }
 
   function localInterpret() {
