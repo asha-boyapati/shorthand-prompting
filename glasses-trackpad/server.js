@@ -194,6 +194,7 @@ const ROUTES = {
   '/display': 'display.html',
   '/trackpad': 'trackpad.html',
   '/quiz': 'quiz.html',
+  '/test': 'test.html',
 };
 
 const server = http.createServer((req, res) => {
@@ -348,6 +349,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  GitHub mock (laptop):      http://localhost:${PORT}/display`);
   console.log(`  Quiz only (laptop):        http://localhost:${PORT}/quiz`);
   console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad`);
+  console.log(`  Test bench (laptop only):  http://localhost:${PORT}/test`);
   if (USE_OPENAI) {
     console.log(`  Drawing interpretation: OpenAI (${OPENAI_MODEL}) - prompt v${PROMPT_VERSION}`);
   } else if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {

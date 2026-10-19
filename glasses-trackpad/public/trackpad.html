@@ -104,6 +104,10 @@
   #clearbtn { display: none; flex: 0 0 auto; padding: 12px 18px; }
   body.drawing #clearbtn { display: block; }
   body.drawing #pad { border-color: rgba(77,210,255,0.7); }
+  /* desktop-only simulation bar: stands in for phone-only gestures */
+  #simbar { display: none; gap: 10px; padding: 0 12px 14px; }
+  body.sim #simbar { display: flex; }
+  #simbar .modebtn { border-style: dashed; }
   #intentbar { display: none; gap: 10px; padding: 0 12px 14px; }
   body.drawing #intentbar { display: flex; }
   #intentbar .modebtn.active { color: #ffc14d; border-color: #ffc14d; box-shadow: 0 0 12px rgba(255,193,77,0.25); }
@@ -154,6 +158,11 @@
 <div id="intentbar">
   <div class="modebtn active" id="interactBtn">&#9995; Interact</div>
   <div class="modebtn" id="correctBtn">&#128295; Correct</div>
+</div>
+
+<div id="simbar">
+  <div class="modebtn" id="simSqueeze">&#9994; Squeeze</div>
+  <div class="modebtn" id="simShake">&#127744; Shake</div>
 </div>
 
 <div id="banner"></div>
@@ -378,6 +387,27 @@
         window.addEventListener('devicemotion', onMotion);
       }
     } catch {}
+  }
+
+  // --- desktop testing: mouse works for move/tap/draw/long-press/double-tap
+  // already (pointer events). Fill in the phone-only gestures: wheel = two-
+  // finger scroll, buttons for squeeze + shake. Active when there's no touch
+  // screen, or with ?sim=1.
+  const SIM = !('ontouchstart' in window) || /[?&]sim=1/.test(location.search);
+  if (SIM) {
+    document.body.classList.add('sim');
+    document.getElementById('simSqueeze').addEventListener('click', () => {
+      send({ type: 'squeeze' });
+      showBanner('✊ squeeze — yes / do it');
+    });
+    document.getElementById('simShake').addEventListener('click', () => {
+      send({ type: 'shake' });
+      showBanner('\u{1F300} shake — cancel / home');
+    });
+    pad.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      send({ type: 'scroll', dx: ev.deltaX * SCROLL_SENS, dy: ev.deltaY * SCROLL_SENS });
+    }, { passive: false });
   }
 
   pad.addEventListener('pointerdown', (ev) => {

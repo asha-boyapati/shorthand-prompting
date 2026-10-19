@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>glasses + trackpad — test bench</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #0b0d12;
+    color: #cfd6e4;
+    font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 10px 16px 6px;
+    font-size: 13px;
+    color: #8a93a6;
+    display: flex;
+    gap: 16px;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  header b { color: #e8edf7; font-size: 15px; }
+  main {
+    flex: 1;
+    display: flex;
+    gap: 14px;
+    padding: 6px 14px 14px;
+    align-items: stretch;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .panel .cap { font-size: 12px; color: #8a93a6; text-align: center; }
+  iframe {
+    border: 1px solid #2a3142;
+    border-radius: 14px;
+    background: #000;
+  }
+  #glassesFrame { width: 640px; height: 660px; }
+  #padFrame { width: 360px; height: 660px; }
+  @media (max-width: 1060px) {
+    #glassesFrame { width: min(640px, 96vw); }
+    #padFrame { width: min(360px, 96vw); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <b>test bench</b>
+  <span>mouse on the trackpad = finger &middot; hold still = draw/cursor &middot; double-click = interact/correct &middot; wheel = scroll &middot; buttons = squeeze / shake</span>
+</header>
+<main>
+  <div class="panel">
+    <div class="cap">glasses display</div>
+    <iframe id="glassesFrame" src="/glasses"></iframe>
+  </div>
+  <div class="panel">
+    <div class="cap">phone trackpad (simulated)</div>
+    <iframe id="padFrame" src="/trackpad?sim=1"></iframe>
+  </div>
+</main>
+</body>
+</html>
