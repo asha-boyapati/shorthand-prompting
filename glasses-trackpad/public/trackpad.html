@@ -58,14 +58,28 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 7px;
     color: rgba(125,147,163,0.55);
-    font-size: 13px;
+    font-size: 14px;
     pointer-events: none;
-    text-align: center;
     padding: 0 24px;
   }
   #padlabel b { color: rgba(77,210,255,0.6); }
+  #padlabel .row {
+    display: grid;
+    grid-template-columns: 110px auto;
+    gap: 14px;
+    width: 100%;
+    max-width: 310px;
+  }
+  #padlabel .row span:first-child { text-align: right; color: rgba(77,210,255,0.6); font-weight: 600; }
+  #padlabel .row span:last-child { text-align: left; }
+  #padlabel .sect { margin-top: 10px; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(125,147,163,0.4); }
+  /* show only what applies: drawing rows appear in draw mode, the basics otherwise */
+  #padlabel .cursorrows { display: contents; }
+  #padlabel .drawrows { display: none; }
+  body.drawing #padlabel .drawrows { display: contents; }
+  body.drawing #padlabel .cursorrows { display: none; }
 
   .touchdot {
     position: absolute;
@@ -139,11 +153,27 @@
 <div id="pad">
   <div id="padlabel">
     <div><b>wrist trackpad</b></div>
-    <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; scroll</div>
-    <div>flick right &mdash; yes / next &nbsp;&middot;&nbsp; flick left &mdash; no / back</div>
-    <div><b>hold</b> &mdash; draw/cursor &nbsp;&middot;&nbsp; <b>double-tap</b> &mdash; interact/correct</div>
-    <div><b>squeeze</b> (2 fingers, hold) &mdash; yes / do it &nbsp;&middot;&nbsp; <b>shake</b> &mdash; cancel/home</div>
-    <div>draw: circle &mdash; info &nbsp;&middot;&nbsp; strike &mdash; dismiss &nbsp;&middot;&nbsp; write words &nbsp;&middot;&nbsp; <b>&#9651;</b> &mdash; voice pause/replay</div>
+    <div class="cursorrows">
+      <div class="row"><span>slide</span><span>move</span></div>
+      <div class="row"><span>tap</span><span>select</span></div>
+      <div class="row"><span>flick &rarr; / &larr;</span><span>yes / no</span></div>
+      <div class="row"><span>2 fingers</span><span>scroll</span></div>
+      <div class="sect">anytime</div>
+      <div class="row"><span>hold</span><span>start drawing</span></div>
+      <div class="row"><span>squeeze</span><span>do it</span></div>
+      <div class="row"><span>shake</span><span>go home</span></div>
+    </div>
+    <div class="drawrows">
+      <div class="sect">now drawing &mdash; ink goes to the AI</div>
+      <div class="row"><span>circle</span><span>tell me more</span></div>
+      <div class="row"><span>strike</span><span>dismiss</span></div>
+      <div class="row"><span>write</span><span>say anything</span></div>
+      <div class="row"><span>&#9651;</span><span>pause / replay voice</span></div>
+      <div class="sect">anytime</div>
+      <div class="row"><span>hold</span><span>back to cursor</span></div>
+      <div class="row"><span>double-tap</span><span>ask vs fix</span></div>
+      <div class="row"><span>shake</span><span>go home</span></div>
+    </div>
   </div>
 </div>
 
