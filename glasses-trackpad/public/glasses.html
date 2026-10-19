@@ -1291,9 +1291,25 @@
     const isScribble = revs >= 4 && L > 150;
     // small circles count too: threshold low enough for a loop around one word
     const closed = !isScribble && L > 70 && gap < Math.max(35, L * 0.28);
+    // count sharp corners: a circle turns smoothly, a triangle has 2-3
+    let corners = 0;
+    {
+      const step = Math.max(1, Math.floor(pts.length / 24));
+      const q = [];
+      for (let i = 0; i < pts.length; i += step) q.push(pts[i]);
+      for (let i = 2; i < q.length; i++) {
+        const a1 = Math.atan2(q[i - 1].y - q[i - 2].y, q[i - 1].x - q[i - 2].x);
+        const a2 = Math.atan2(q[i].y - q[i - 1].y, q[i].x - q[i - 1].x);
+        let d = Math.abs(a2 - a1);
+        if (d > Math.PI) d = 2 * Math.PI - d;
+        if (d > 1.1) corners++;
+      }
+    }
     let shape = 'freeform';
     if (isScribble) {
       shape = 'scribble';
+    } else if (closed && corners >= 2 && corners <= 4) {
+      shape = 'triangle';
     } else if (closed) {
       shape = 'circle';
     } else {
@@ -1416,6 +1432,14 @@
   function interpretStrokes() {
     const an = strokes.filter((s) => s.length >= 8).map(analyzeStroke);
     if (!an.length) { clearInk(true); return; }
+
+    // a lone triangle is the voice-control glyph: pause / resume / repeat.
+    // Handled locally - speech control has to be instant, no AI round-trip.
+    if (an.length === 1 && an[0].shape === 'triangle') {
+      clearInk(false);
+      speechControl();
+      return;
+    }
 
     // while a proposal is up, a short quick horizontal stroke in draw mode
     // answers it (right = yes, left = no) instead of being interpreted
@@ -1777,13 +1801,41 @@
 
   // the glasses "speak" through the laptop (simulating on-glasses audio)
   let audioOn = true;
+  let lastSpoken = '';
   function speak(text) {
     if (!audioOn || !('speechSynthesis' in window)) return;
     try {
+      lastSpoken = String(text).slice(0, 220);
       speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(String(text).slice(0, 220));
+      const u = new SpeechSynthesisUtterance(lastSpoken);
       u.rate = 1.08;
       speechSynthesis.speak(u);
+    } catch {}
+  }
+
+  // triangle glyph: pause if speaking, resume if paused, repeat if silent
+  function speechControl() {
+    if (!('speechSynthesis' in window)) return;
+    try {
+      if (!audioOn) {
+        showToast('\u{1F507} audio is off');
+        sendAck('Audio is off', false);
+      } else if (speechSynthesis.speaking && !speechSynthesis.paused) {
+        speechSynthesis.pause();
+        showToast('⏸ paused');
+        sendAck('Paused', true);
+      } else if (speechSynthesis.paused) {
+        speechSynthesis.resume();
+        showToast('▶ resumed');
+        sendAck('Resumed', true);
+      } else if (lastSpoken) {
+        speak(lastSpoken);
+        showToast('↻ repeating');
+        sendAck('Repeating', true);
+      } else {
+        showToast('nothing to repeat');
+        sendAck('Nothing to repeat', false);
+      }
     } catch {}
   }
 
