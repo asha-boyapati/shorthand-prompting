@@ -323,7 +323,10 @@
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
-<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span></div>
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span>
+  <button id="audioBtn" title="glasses audio"
+    style="background:none;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 10px;">&#128266; on</button>
+</div>
 
 <div id="hud">
   <div id="card"></div>
@@ -550,8 +553,7 @@
       '</div>').join('');
     card.innerHTML =
       '<div class="head"><span data-content="home-title">ASSISTANT · what do you want to do?</span><span class="chip task">' + PROMPTS.length + ' prompts</span></div>' +
-      '<div class="scrollable" id="scrollable">' + rows + '</div>' +
-      '<div class="hint" style="padding-top:6px;">tap or circle a prompt</div>';
+      '<div class="scrollable" id="scrollable">' + rows + '</div>';
   }
 
   function renderQuiz() {
@@ -638,8 +640,7 @@
         '<div class="center">' +
           '<div class="bigq" style="font-size:24px;" data-content="ideate-question">' + esc(Q.q) + '</div>' +
           '<div style="display:flex;flex-wrap:wrap;justify-content:center;max-width:430px;">' + opts + '</div>' +
-          (answered ? '<div class="hint">so far: ' + esc(answered) + '</div>'
-                    : '<div class="hint">your ideas get tailored to the answers</div>') +
+          (answered ? '<div class="hint">' + esc(answered) + '</div>' : '') +
         '</div>' +
         '<div class="pillrow">' + homeBtn() + '</div>';
       return;
@@ -700,7 +701,7 @@
           '<div class="camera"><div class="camlabel">◉ your camera</div>' +
             '<img src="' + tr.photoImage + '" style="width:100%;border-radius:8px;max-height:140px;object-fit:cover;" alt="">' +
           '</div>' + rows +
-          '<div class="hint">take another photo with \u{1F4F7} on the phone</div>' +
+          '<div class="hint">\u{1F4F7} = new photo</div>' +
         '</div>' +
         '<div class="pillrow">' +
           '<button class="pill" data-action="Back to demo scenes" data-cmd="tr:scenes">Demo scenes</button>' +
@@ -1029,6 +1030,7 @@
       case 'draw': doDraw(msg); break;
       case 'photo': doPhoto(msg); break;
       case 'shake': doShake(); break;
+      case 'squeeze': doSqueeze(); break;
       case 'assistant': onAssistant(msg); break;
       case 'mode':
         cursor.classList.toggle('pen', msg.mode === 'draw');
@@ -1113,6 +1115,28 @@
       sendAck(sc[1], true);
     } else {
       sendAck('swipe does nothing here', false);
+    }
+  }
+
+  // squeeze = universal "yes / do it": confirm what's open, else press the
+  // screen's primary action
+  function doSqueeze() {
+    if (proposal) {
+      if (proposal.options) { chooseAlt(0); return; }
+      const p = proposal;
+      proposal = null;
+      clearTimeout(proposalTimer);
+      applyAssistant(p.actions, p.edits, p.state);
+      showBubble('✓ done');
+      sendAck('Confirmed', true);
+      return;
+    }
+    const primary = card.querySelector('.pillrow .pill:not(.small)');
+    if (primary && run(primary.dataset.cmd)) {
+      showToast(primary.dataset.action);
+      sendAck(primary.dataset.action, true);
+    } else {
+      sendAck('nothing to confirm', false);
     }
   }
 
@@ -1548,7 +1572,7 @@
     proposalTimer = setTimeout(() => {
       if (proposal && proposal.options) { proposal = null; hideChooser(); hideBubble(); showToast('suggestion expired'); }
     }, 20000);
-    showBubble((say || 'Did you mean:'), false, true, 'tap an option · flick → = first · ← = none');
+    showBubble((say || 'Did you mean:'), false, true, 'tap · → first · ← none');
     chooser.innerHTML = alts.map((a, i) =>
       '<button class="altbtn" data-action="' + esc(a.label) + '" data-alt="' + i + '">' +
       '<span class="n">' + (i + 1) + '</span>' + esc(a.label) + '</button>').join('');
@@ -1751,12 +1775,25 @@
     }
   }
 
+  // the glasses "speak" through the laptop (simulating on-glasses audio)
+  let audioOn = true;
+  function speak(text) {
+    if (!audioOn || !('speechSynthesis' in window)) return;
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(String(text).slice(0, 220));
+      u.rate = 1.08;
+      speechSynthesis.speak(u);
+    } catch {}
+  }
+
   let bubbleTimer = null;
   function showBubble(text, thinking, sticky, hint) {
     bubble.innerHTML = '<span class="who">✨ assistant</span>' +
       String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;') +
       (sticky ? '<br><span style="color:var(--muted);font-size:11.5px;">' +
-        (hint || 'flick right = yes · flick left = no') + '</span>' : '');
+        (hint || '→ / squeeze = yes · ← = no') + '</span>' : '');
+    if (!thinking) speak(text);
     bubble.classList.toggle('thinking', !!thinking);
     bubble.classList.add('show');
     clearTimeout(bubbleTimer);
@@ -1773,6 +1810,12 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toast.classList.remove('show'), 1700);
   }
+
+  document.getElementById('audioBtn').addEventListener('click', function () {
+    audioOn = !audioOn;
+    if (!audioOn) try { speechSynthesis.cancel(); } catch {}
+    this.innerHTML = audioOn ? '\u{1F50A} on' : '\u{1F507} off';
+  });
 
   render();
   renderCursor();

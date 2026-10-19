@@ -137,7 +137,8 @@
     <div><b>wrist trackpad</b></div>
     <div>1 finger &mdash; move &nbsp;&middot;&nbsp; tap &mdash; select &nbsp;&middot;&nbsp; 2 fingers &mdash; scroll</div>
     <div>flick right &mdash; yes / next &nbsp;&middot;&nbsp; flick left &mdash; no / back</div>
-    <div><b>hold</b> &mdash; draw/cursor &nbsp;&middot;&nbsp; <b>double-tap</b> &mdash; interact/correct &nbsp;&middot;&nbsp; <b>shake</b> &mdash; cancel/home</div>
+    <div><b>hold</b> &mdash; draw/cursor &nbsp;&middot;&nbsp; <b>double-tap</b> &mdash; interact/correct</div>
+    <div><b>squeeze</b> (2 fingers, hold) &mdash; yes / do it &nbsp;&middot;&nbsp; <b>shake</b> &mdash; cancel/home</div>
     <div>draw: circle &mdash; info &nbsp;&middot;&nbsp; strike &mdash; dismiss &nbsp;&middot;&nbsp; write words</div>
   </div>
 </div>
@@ -306,8 +307,12 @@
   // Single taps are therefore dispatched after a short delay.
   const LONGPRESS_MS = 550;
   const DOUBLETAP_MS = 300;
+  const SQUEEZE_MS = 450;
   let longPressTimer = null, longPressFired = false;
   let lastTapAt = 0, pendingTapTimer = null;
+  // "squeeze" = two fingers pressed and held still (hardware squeeze
+  // buttons aren't web-accessible, so this is the stand-in)
+  let squeezeTimer = null, squeezeFired = false, twoMoved = false;
 
   function queueTap() {
     const now = performance.now();
@@ -407,6 +412,21 @@
       strokeLive = false;
       strokeBuf = [];
     }
+    if (active.size === 2) {
+      twoMoved = false;
+      squeezeFired = false;
+      clearTimeout(squeezeTimer);
+      squeezeTimer = setTimeout(() => {
+        if (active.size === 2 && !twoMoved && !squeezeFired) {
+          squeezeFired = true;
+          send({ type: 'squeeze' });
+          vibrate([50, 50, 50, 50, 50]);
+          showBanner('✊ squeeze — yes / do it');
+        }
+      }, SQUEEZE_MS);
+    } else {
+      clearTimeout(squeezeTimer);
+    }
   });
 
   pad.addEventListener('pointermove', (ev) => {
@@ -424,6 +444,11 @@
     if (dx === 0 && dy === 0) return;
 
     if (mode === 'scroll') {
+      if (Math.hypot(p.x - st.startX, p.y - st.startY) > TAP_SLOP) {
+        twoMoved = true;
+        clearTimeout(squeezeTimer);
+      }
+      if (squeezeFired) return; // squeeze consumed this touch
       // Two-finger drag: natural scrolling. Use only the first pointer's
       // movement so the two fingers don't double-count.
       if (ev.pointerId === firstPointerId()) {
@@ -459,6 +484,8 @@
     active.delete(ev.pointerId);
     hideDot(ev.pointerId);
     clearTimeout(longPressTimer);
+    if (active.size < 2) clearTimeout(squeezeTimer);
+    if (active.size === 0) squeezeFired = false;
 
     if (longPressFired && active.size === 0) {
       // the hold already switched modes - swallow this touch entirely

@@ -16,7 +16,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 16; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 17; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -57,7 +57,7 @@ SPECIAL TASK: when the payload has task "generate-ideas", the user finished a sh
  "ideas": [{"title": "<2-3 word name>", "tag": "<one-line pitch>", "tags": ["<topic>", "<topic>"], "details": ["<concrete feature>", "<how to demo it live>", "<why judges will like it>"]}, ...]}
 
 Respond with ONLY compact JSON, no markdown fences:
-{"say": "<one or two short sentences to show the user>",
+{"say": "<UNDER 10 WORDS - shown on a tiny glasses display AND read aloud>",
  "confidence": "high" | "normal",
  "actions": ["<cmd>", ...],
  "edits": [{"target": "<cmd or content id>", "text": "<replacement display text, optional>", "style": "emphasize|dim|strike (optional)", "note": "<2-3 sentence caption shown under the target, e.g. an explanation (optional)>"}],
