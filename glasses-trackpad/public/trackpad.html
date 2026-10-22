@@ -118,10 +118,6 @@
   #clearbtn { display: none; flex: 0 0 auto; padding: 12px 18px; }
   body.drawing #clearbtn { display: block; }
   body.drawing #pad { border-color: rgba(77,210,255,0.7); }
-  /* desktop-only simulation bar: stands in for phone-only gestures */
-  #simbar { display: none; gap: 10px; padding: 0 12px 14px; }
-  body.sim #simbar { display: flex; }
-  #simbar .modebtn { border-style: dashed; }
   #intentbar { display: none; gap: 10px; padding: 0 12px 14px; }
   body.drawing #intentbar { display: flex; }
   #intentbar .modebtn.active { color: #ffc14d; border-color: #ffc14d; box-shadow: 0 0 12px rgba(255,193,77,0.25); }
@@ -160,8 +156,7 @@
       <div class="row"><span>2 fingers</span><span>scroll</span></div>
       <div class="sect">anytime</div>
       <div class="row"><span>hold</span><span>start drawing</span></div>
-      <div class="row"><span>squeeze</span><span>do it</span></div>
-      <div class="row"><span>shake</span><span>go home</span></div>
+      <div class="row"><span>flick &darr;</span><span>go home</span></div>
     </div>
     <div class="drawrows">
       <div class="sect">now drawing &mdash; ink goes to the AI</div>
@@ -172,7 +167,6 @@
       <div class="sect">anytime</div>
       <div class="row"><span>hold</span><span>back to cursor</span></div>
       <div class="row"><span>double-tap</span><span>ask vs fix</span></div>
-      <div class="row"><span>shake</span><span>go home</span></div>
     </div>
   </div>
 </div>
@@ -188,11 +182,6 @@
 <div id="intentbar">
   <div class="modebtn active" id="interactBtn">&#9995; Interact</div>
   <div class="modebtn" id="correctBtn">&#128295; Correct</div>
-</div>
-
-<div id="simbar">
-  <div class="modebtn" id="simSqueeze">&#9994; Squeeze</div>
-  <div class="modebtn" id="simShake">&#127744; Shake</div>
 </div>
 
 <div id="banner"></div>
@@ -346,28 +335,13 @@
   // Single taps are therefore dispatched after a short delay.
   const LONGPRESS_MS = 550;
   const DOUBLETAP_MS = 300;
-  const SQUEEZE_MS = 400;
-  const SQUEEZE_SLOP = 32; // real fingers drift; only clear movement cancels a squeeze
   let longPressTimer = null, longPressFired = false;
   let lastTapAt = 0, pendingTapTimer = null;
-  // "squeeze" = two fingers pressed and held still (hardware squeeze
-  // buttons aren't web-accessible, so this is the stand-in)
-  let squeezeTimer = null, squeezeFired = false, twoMoved = false, twoStartT = 0;
-
-  // tiny self-diagnosis readout: page version · fingers detected · motion state
-  const PAD_V = 'v3';
+  // tiny self-diagnosis readout: page version · fingers detected
+  const PAD_V = 'v4';
   const gdbg = document.getElementById('gdbg');
-  let motionState = ''; // '' unknown, '🌀' granted, '🚫' blocked
   function updateDbg() {
-    gdbg.textContent = PAD_V + (active.size ? ' ' + '●'.repeat(Math.min(active.size, 3)) : '') +
-      (motionState ? ' ' + motionState : '');
-  }
-
-  function fireSqueeze() {
-    squeezeFired = true;
-    send({ type: 'squeeze' });
-    vibrate([50, 50, 50, 50, 50]);
-    showBanner('✊ squeeze — yes / do it');
+    gdbg.textContent = PAD_V + (active.size ? ' ' + '●'.repeat(Math.min(active.size, 3)) : '');
   }
 
   function queueTap() {
@@ -401,84 +375,9 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
-  // --- shake the phone = cancel / go home (no looking, no buttons) ---
-  let motionReady = false;
-  let shakeCount = 0, lastShakeHit = 0, lastShakeSent = 0, lastGravMag = null;
-  function onMotion(e) {
-    let mag = null;
-    const a = e.acceleration;
-    if (a && (a.x || a.y || a.z)) {
-      mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
-    } else {
-      // some devices only report accelerationIncludingGravity - use its jumps
-      const g = e.accelerationIncludingGravity;
-      if (!g) return;
-      const m = Math.hypot(g.x || 0, g.y || 0, g.z || 0);
-      if (lastGravMag === null) { lastGravMag = m; return; }
-      mag = Math.abs(m - lastGravMag);
-      lastGravMag = m;
-    }
-    const now = performance.now();
-    if (mag > 12 && now - lastShakeHit > 100) {
-      shakeCount = (now - lastShakeHit < 900) ? shakeCount + 1 : 1;
-      lastShakeHit = now;
-      if (shakeCount >= 2 && now - lastShakeSent > 1500) {
-        lastShakeSent = now;
-        shakeCount = 0;
-        send({ type: 'shake' });
-        vibrate([60, 60, 60]);
-        showBanner('\u{1F300} shake — cancel / home');
-      }
-    }
-  }
-  function enableMotion() {
-    if (motionReady) return;
-    motionReady = true;
-    try {
-      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-        // iOS: must be requested from a user gesture, and ONLY works on https
-        if (location.protocol !== 'https:') {
-          motionState = '\u{1F6AB}';
-          updateDbg();
-          showBanner('shake needs the https:// link (see server log)');
-          return;
-        }
-        DeviceMotionEvent.requestPermission()
-          .then((s) => {
-            if (s === 'granted') {
-              window.addEventListener('devicemotion', onMotion);
-              motionState = '\u{1F300}';
-              showBanner('\u{1F300} shake enabled');
-            } else {
-              motionState = '\u{1F6AB}';
-              showBanner('motion blocked — close this tab, reopen, and tap Allow');
-            }
-            updateDbg();
-          })
-          .catch(() => { motionState = '\u{1F6AB}'; updateDbg(); showBanner('motion blocked — reload and tap Allow'); });
-      } else {
-        window.addEventListener('devicemotion', onMotion);
-        motionState = '\u{1F300}';
-        updateDbg();
-      }
-    } catch {}
-  }
-
-  // --- desktop testing: mouse works for move/tap/draw/long-press/double-tap
-  // already (pointer events). Fill in the phone-only gestures: wheel = two-
-  // finger scroll, buttons for squeeze + shake. Active when there's no touch
-  // screen, or with ?sim=1.
-  const SIM = !('ontouchstart' in window) || /[?&]sim=1/.test(location.search);
-  if (SIM) {
-    document.body.classList.add('sim');
-    document.getElementById('simSqueeze').addEventListener('click', () => {
-      send({ type: 'squeeze' });
-      showBanner('✊ squeeze — yes / do it');
-    });
-    document.getElementById('simShake').addEventListener('click', () => {
-      send({ type: 'shake' });
-      showBanner('\u{1F300} shake — cancel / home');
-    });
+  // --- desktop testing: mouse covers move/tap/draw/long-press/double-tap
+  // via pointer events; the wheel stands in for two-finger scroll.
+  if (!('ontouchstart' in window) || /[?&]sim=1/.test(location.search)) {
     pad.addEventListener('wheel', (ev) => {
       ev.preventDefault();
       send({ type: 'scroll', dx: ev.deltaX * SCROLL_SENS, dy: ev.deltaY * SCROLL_SENS });
@@ -491,7 +390,6 @@
 
   pad.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
-    enableMotion(); // first touch doubles as the iOS motion-permission gesture
     try { pad.setPointerCapture(ev.pointerId); } catch {}
     const p = padPos(ev);
     active.set(ev.pointerId, { x: p.x, y: p.y, startX: p.x, startY: p.y, startT: performance.now() });
@@ -521,17 +419,6 @@
       strokeLive = false;
       strokeBuf = [];
     }
-    if (active.size === 2) {
-      twoMoved = false;
-      squeezeFired = false;
-      twoStartT = performance.now();
-      clearTimeout(squeezeTimer);
-      squeezeTimer = setTimeout(() => {
-        if (active.size === 2 && !twoMoved && !squeezeFired) fireSqueeze();
-      }, SQUEEZE_MS);
-    } else {
-      clearTimeout(squeezeTimer);
-    }
     updateDbg();
   });
 
@@ -550,12 +437,6 @@
     if (dx === 0 && dy === 0) return;
 
     if (mode === 'scroll') {
-      if (Math.hypot(p.x - st.startX, p.y - st.startY) > SQUEEZE_SLOP) {
-        twoMoved = true;
-        clearTimeout(squeezeTimer);
-      }
-      if (squeezeFired) return; // squeeze consumed this touch
-      if (!twoMoved) return;    // still deciding squeeze vs scroll - don't jitter-scroll
       // Two-finger drag: natural scrolling. Use only the first pointer's
       // movement so the two fingers don't double-count.
       if (ev.pointerId === firstPointerId()) {
@@ -591,13 +472,6 @@
     active.delete(ev.pointerId);
     hideDot(ev.pointerId);
     clearTimeout(longPressTimer);
-    if (active.size < 2) clearTimeout(squeezeTimer);
-    // a quick two-finger TAP is also a squeeze - easier than a precise hold
-    if (active.size === 0 && mode === 'scroll' && !squeezeFired && !twoMoved &&
-        twoStartT && performance.now() - twoStartT < 300) {
-      fireSqueeze();
-    }
-    if (active.size === 0) { squeezeFired = false; twoStartT = 0; }
     updateDbg();
 
     if (longPressFired && active.size === 0) {
@@ -630,6 +504,12 @@
           // fast mostly-horizontal flick -> swipe, not a tap/move tail
           send({ type: 'swipe', dir: dx > 0 ? 'right' : 'left' });
           vibrate(25);
+        } else if (dt < SWIPE_MS && dy > SWIPE_DIST &&
+            dy > Math.abs(dx) * 1.5 && speed > SWIPE_SPEED) {
+          // fast downward flick = never mind / go home
+          send({ type: 'swipe', dir: 'down' });
+          vibrate([60, 60, 60]);
+          showBanner('\u2193 home');
         } else if (dt < TAP_MS && dist < TAP_SLOP) {
           queueTap();
         }

@@ -1175,6 +1175,7 @@
   }
 
   function doSwipe(dir) {
+    if (dir === 'down') { doShake(); return; } // flick down = never mind / home
     flash.className = dir === 'right' ? 'right show' : 'left show';
     setTimeout(() => { flash.className = ''; }, 450);
     // a pending AI proposal captures the flick as yes/no
@@ -2008,7 +2009,7 @@
     bubble.innerHTML = '<span class="who">✨ assistant</span>' +
       String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;') +
       (sticky ? '<br><span style="color:var(--muted);font-size:11.5px;">' +
-        (hint || '→ / squeeze = yes · ← = no') + '</span>' : '');
+        (hint || '→ = yes · ← = no') + '</span>' : '');
     if (!thinking) speak(text);
     bubble.classList.toggle('thinking', !!thinking);
     bubble.classList.add('show');
