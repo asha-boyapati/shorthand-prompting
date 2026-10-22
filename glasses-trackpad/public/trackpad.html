@@ -148,7 +148,7 @@
 </head>
 <body>
 
-<div id="topbar"><span class="dot"></span><span id="statustext">connecting…</span></div>
+<div id="topbar"><span class="dot"></span><span id="statustext">connecting…</span><span id="gdbg" style="margin-left:auto;letter-spacing:0;"></span></div>
 
 <div id="pad">
   <div id="padlabel">
@@ -352,7 +352,23 @@
   let lastTapAt = 0, pendingTapTimer = null;
   // "squeeze" = two fingers pressed and held still (hardware squeeze
   // buttons aren't web-accessible, so this is the stand-in)
-  let squeezeTimer = null, squeezeFired = false, twoMoved = false;
+  let squeezeTimer = null, squeezeFired = false, twoMoved = false, twoStartT = 0;
+
+  // tiny self-diagnosis readout: page version · fingers detected · motion state
+  const PAD_V = 'v3';
+  const gdbg = document.getElementById('gdbg');
+  let motionState = ''; // '' unknown, '🌀' granted, '🚫' blocked
+  function updateDbg() {
+    gdbg.textContent = PAD_V + (active.size ? ' ' + '●'.repeat(Math.min(active.size, 3)) : '') +
+      (motionState ? ' ' + motionState : '');
+  }
+
+  function fireSqueeze() {
+    squeezeFired = true;
+    send({ type: 'squeeze' });
+    vibrate([50, 50, 50, 50, 50]);
+    showBanner('✊ squeeze — yes / do it');
+  }
 
   function queueTap() {
     const now = performance.now();
@@ -387,16 +403,26 @@
 
   // --- shake the phone = cancel / go home (no looking, no buttons) ---
   let motionReady = false;
-  let shakeCount = 0, lastShakeHit = 0, lastShakeSent = 0;
+  let shakeCount = 0, lastShakeHit = 0, lastShakeSent = 0, lastGravMag = null;
   function onMotion(e) {
+    let mag = null;
     const a = e.acceleration;
-    if (!a) return;
-    const mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+    if (a && (a.x || a.y || a.z)) {
+      mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+    } else {
+      // some devices only report accelerationIncludingGravity - use its jumps
+      const g = e.accelerationIncludingGravity;
+      if (!g) return;
+      const m = Math.hypot(g.x || 0, g.y || 0, g.z || 0);
+      if (lastGravMag === null) { lastGravMag = m; return; }
+      mag = Math.abs(m - lastGravMag);
+      lastGravMag = m;
+    }
     const now = performance.now();
-    if (mag > 15 && now - lastShakeHit > 120) {
-      shakeCount = (now - lastShakeHit < 700) ? shakeCount + 1 : 1;
+    if (mag > 12 && now - lastShakeHit > 100) {
+      shakeCount = (now - lastShakeHit < 900) ? shakeCount + 1 : 1;
       lastShakeHit = now;
-      if (shakeCount >= 3 && now - lastShakeSent > 1500) {
+      if (shakeCount >= 2 && now - lastShakeSent > 1500) {
         lastShakeSent = now;
         shakeCount = 0;
         send({ type: 'shake' });
@@ -412,6 +438,8 @@
       if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
         // iOS: must be requested from a user gesture, and ONLY works on https
         if (location.protocol !== 'https:') {
+          motionState = '\u{1F6AB}';
+          updateDbg();
           showBanner('shake needs the https:// link (see server log)');
           return;
         }
@@ -419,14 +447,19 @@
           .then((s) => {
             if (s === 'granted') {
               window.addEventListener('devicemotion', onMotion);
+              motionState = '\u{1F300}';
               showBanner('\u{1F300} shake enabled');
             } else {
+              motionState = '\u{1F6AB}';
               showBanner('motion blocked — close this tab, reopen, and tap Allow');
             }
+            updateDbg();
           })
-          .catch(() => { showBanner('motion blocked — reload and tap Allow'); });
+          .catch(() => { motionState = '\u{1F6AB}'; updateDbg(); showBanner('motion blocked — reload and tap Allow'); });
       } else {
         window.addEventListener('devicemotion', onMotion);
+        motionState = '\u{1F300}';
+        updateDbg();
       }
     } catch {}
   }
@@ -491,18 +524,15 @@
     if (active.size === 2) {
       twoMoved = false;
       squeezeFired = false;
+      twoStartT = performance.now();
       clearTimeout(squeezeTimer);
       squeezeTimer = setTimeout(() => {
-        if (active.size === 2 && !twoMoved && !squeezeFired) {
-          squeezeFired = true;
-          send({ type: 'squeeze' });
-          vibrate([50, 50, 50, 50, 50]);
-          showBanner('✊ squeeze — yes / do it');
-        }
+        if (active.size === 2 && !twoMoved && !squeezeFired) fireSqueeze();
       }, SQUEEZE_MS);
     } else {
       clearTimeout(squeezeTimer);
     }
+    updateDbg();
   });
 
   pad.addEventListener('pointermove', (ev) => {
@@ -562,7 +592,13 @@
     hideDot(ev.pointerId);
     clearTimeout(longPressTimer);
     if (active.size < 2) clearTimeout(squeezeTimer);
-    if (active.size === 0) squeezeFired = false;
+    // a quick two-finger TAP is also a squeeze - easier than a precise hold
+    if (active.size === 0 && mode === 'scroll' && !squeezeFired && !twoMoved &&
+        twoStartT && performance.now() - twoStartT < 300) {
+      fireSqueeze();
+    }
+    if (active.size === 0) { squeezeFired = false; twoStartT = 0; }
+    updateDbg();
 
     if (longPressFired && active.size === 0) {
       // the hold already switched modes - swallow this touch entirely
@@ -605,6 +641,7 @@
   pad.addEventListener('pointerup', endPointer);
   pad.addEventListener('pointercancel', endPointer);
 
+  updateDbg();
   connect();
 })();
 </script>

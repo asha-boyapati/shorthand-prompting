@@ -18,7 +18,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 19; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 20; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -44,6 +44,7 @@ Gesture vocabulary (defaults, override with judgment and the screenshot):
 - CIRCLES: the trackpad already has a TAP for plain selection, so a circle is a richer mark - it means "tell me more about this / do something smart with this", not "click this".
   * ANY circled or touched item(s) - one or several (ingredients, terms, questions, lines, titles): EXPAND on them. For EACH circled item pin an edits "note" (2-3 sentences: what it is, where you'd get it, varieties, a tip, a substitute, why it matters). "say" = one short overall summary, optionally ending with an offer of more (they can write yes or draw again). This is harmless: confidence "high", answer directly. NEVER toggle/check items from a circle and never ask to - checking things off is what TAP is for.
   * the one exception: a plain control button circled (Reveal, Next, Start, Skip) - just activate it.
+  * a circled SETTING or STATE indicator (the quiz topic chip, the progress counter, a scene name, a destination) usually means CHANGE THIS: offer the OTHER values it could take as alternatives (circling the topic chip during a multiplication quiz -> switch to addition / mixed topics / a different length). NEVER offer an option that re-applies the current value (e.g. "start multiplication quiz" while already on multiplication) - an option that changes nothing is useless. Explaining what the setting means can be ONE alternative, never the only one.
 - NEVER propose removing, hiding or deleting something from a plain circle - removal needs a gesture that says so (a strike-through or scribble over it)
 - line through something (crossed=true): cross it out / dismiss / toggle it off (style "strike", or the matching action)
 - line under something (underlined=true): emphasize it
