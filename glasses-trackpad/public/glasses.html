@@ -1954,8 +1954,12 @@
     }
   }
 
-  // the glasses "speak" through the laptop (simulating on-glasses audio)
+  // the glasses "speak" through the laptop (simulating on-glasses audio).
+  // The choice is remembered: spoken replies through laptop speakers can be
+  // picked up by macOS Voice Control / dictation and executed as commands,
+  // so once muted it must STAY muted across reloads.
   let audioOn = true;
+  try { audioOn = localStorage.getItem('ga-audio') !== 'off'; } catch {}
   let lastSpoken = '';
   function speak(text) {
     if (!audioOn || !('speechSynthesis' in window)) return;
@@ -2018,11 +2022,17 @@
     toastTimer = setTimeout(() => toast.classList.remove('show'), 1700);
   }
 
-  document.getElementById('audioBtn').addEventListener('click', function () {
+  const audioBtn = document.getElementById('audioBtn');
+  function renderAudioBtn() {
+    audioBtn.innerHTML = audioOn ? '\u{1F50A} on' : '\u{1F507} off';
+  }
+  audioBtn.addEventListener('click', function () {
     audioOn = !audioOn;
     if (!audioOn) try { speechSynthesis.cancel(); } catch {}
-    this.innerHTML = audioOn ? '\u{1F50A} on' : '\u{1F507} off';
+    try { localStorage.setItem('ga-audio', audioOn ? 'on' : 'off'); } catch {}
+    renderAudioBtn();
   });
+  renderAudioBtn();
 
   render();
   renderCursor();
