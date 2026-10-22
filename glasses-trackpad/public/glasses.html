@@ -73,8 +73,8 @@
     display: flex; align-items: center; gap: 9px;
     border: 1px solid var(--border); border-radius: 16px;
     background: #171e28;
-    padding: 9px 14px; margin: 4px 0;
-    font-size: 16px; cursor: pointer;
+    padding: 12px 16px; margin: 5px 0;
+    font-size: 20px; cursor: pointer;
   }
   .prompt .mic { color: var(--hud-glow); font-size: 11px; }
   .prompt.soon { color: var(--muted); }
@@ -96,14 +96,17 @@
     color: var(--hud-glow); text-shadow: 0 0 16px rgba(77,210,255,0.5); min-height: 50px;
   }
   .biganswer.hidden { visibility: hidden; }
-  .hint { font-size: 12.5px; color: var(--muted); text-align: center; }
+  .hint { font-size: 14px; color: var(--muted); text-align: center; }
+  /* coaching hints teach a gesture, then get out of the way */
+  .coach { animation: coachfade 0.8s ease 4s forwards; }
+  @keyframes coachfade { to { opacity: 0; } }
   .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
 
   /* cooking */
   .ing {
     display: flex; align-items: center; gap: 10px;
     border: 1px solid var(--border); border-radius: 14px;
-    padding: 9px 13px; margin: 4px 0; font-size: 16.5px; cursor: pointer;
+    padding: 10px 14px; margin: 4px 0; font-size: 19px; cursor: pointer;
     background: #171e28;
   }
   .ing .box {
@@ -113,7 +116,7 @@
   }
   .ing.checked { border-color: rgba(63,185,80,0.5); }
   .ing.checked .box { border-color: var(--green); color: var(--green); }
-  .steptext { font-size: 27px; font-weight: 600; text-align: center; line-height: 1.35; }
+  .steptext { font-size: 30px; font-weight: 600; text-align: center; line-height: 1.35; }
   .timerchip {
     font-size: 30px; font-weight: 700; color: var(--amber);
     border: 1px solid rgba(210,153,34,0.5); border-radius: 14px; padding: 4px 18px;
@@ -122,10 +125,10 @@
 
   /* ideation */
   .idea-title { font-size: 30px; font-weight: 700; text-align: center; }
-  .idea-tag { font-size: 16.5px; color: var(--muted); text-align: center; }
+  .idea-tag { font-size: 18px; color: var(--muted); text-align: center; }
   .tags { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
   .tags .chip { font-size: 10.5px; padding: 2px 9px; }
-  .details { font-size: 15px; color: var(--text); margin: 4px 0 0; padding-left: 18px; }
+  .details { font-size: 16.5px; color: var(--text); margin: 4px 0 0; padding-left: 18px; }
   .details li { margin: 2px 0; }
   .shortlist { font-size: 18px; line-height: 1.7; text-align: center; }
   .score-line { font-size: 24px; text-align: center; }
@@ -147,13 +150,13 @@
   .tline {
     padding: 5px 10px; margin: 3px 0;
     border-radius: 10px; border: 1px solid transparent;
-    font-size: 17px; cursor: pointer;
+    font-size: 19px; cursor: pointer;
   }
   .tline:hover { border-color: var(--border); }
   .tline .es {
     display: block;
     color: var(--hud-glow);
-    font-size: 16px;
+    font-size: 18px;
     margin-top: 1px;
   }
   .tasknote { font-size: 14.5px; color: var(--muted); margin: 2px 0 4px; }
@@ -587,7 +590,7 @@
       (p.ready ? '' : ' <span style="margin-left:auto;font-size:10px;color:var(--border);">soon</span>') +
       '</div>').join('');
     card.innerHTML =
-      '<div class="head"><span data-content="home-title">ASSISTANT · what do you want to do?</span><span class="chip task">' + PROMPTS.length + ' prompts</span></div>' +
+      '<div class="head"><span data-content="home-title">ASSISTANT · what do you want to do?</span></div>' +
       '<div class="scrollable" id="scrollable">' + rows + '</div>';
   }
 
@@ -613,9 +616,9 @@
       '<div class="center">' +
         '<div class="bigq" data-content="quiz-question">' + q.text + '</div>' +
         '<div class="biganswer ' + (qz.revealed ? '' : 'hidden') + '" data-content="quiz-answer">' + q.answer + '</div>' +
-        '<div class="hint">→ got it · ← missed it</div>' +
+        (qz.pos === 0 ? '<div class="hint coach">→ got it · ← missed it</div>' : '') +
       '</div>' +
-      '<div class="pillrow">' + btns + homeBtn() + '</div>';
+      '<div class="pillrow">' + btns + '</div>';
   }
 
   function renderCook() {
@@ -627,8 +630,8 @@
       card.innerHTML =
         '<div class="head"><span data-content="cook-progress">COOKING · carbonara</span><span class="chip task" data-content="cook-chip">Ingredients</span></div>' +
         '<div class="scrollable" id="scrollable">' + rows + '</div>' +
-        '<div class="hint" style="padding:4px 0;">tap = check · circle = info</div>' +
-        '<div class="pillrow"><button class="pill good" data-action="Start cooking" data-cmd="cook:start">Start cooking</button>' + homeBtn() + '</div>';
+        '<div class="hint coach" style="padding:4px 0;">tap = check · circle = info</div>' +
+        '<div class="pillrow"><button class="pill good" data-action="Start cooking" data-cmd="cook:start">Start cooking</button></div>';
       return;
     }
     if (ck.phase === 'done') {
@@ -646,11 +649,9 @@
     let timerHtml = '';
     if (s.timer) {
       if (ck.timer) {
-        timerHtml = '<div class="timerchip running">⏱ ' + ck.remaining + ':00</div>' +
-                    '<div class="hint">demo clock: 1 s = 1 min</div>';
+        timerHtml = '<div class="timerchip running">⏱ ' + ck.remaining + ':00</div>';
       } else {
-        timerHtml = '<button class="pill" data-action="Start ' + s.timer + ' min timer" data-cmd="cook:timer">⏱ Start ' + s.timer + ' min timer</button>' +
-                    '<div class="hint">demo clock: 1 s = 1 min</div>';
+        timerHtml = '<button class="pill" data-action="Start ' + s.timer + ' min timer" data-cmd="cook:timer">⏱ ' + s.timer + ' min timer</button>';
       }
     }
     card.innerHTML =
@@ -658,9 +659,8 @@
         '<span class="chip task" data-content="cook-chip">Carbonara</span></div>' +
       '<div class="center">' +
         '<div class="steptext" data-content="cook-step">' + s.text + '</div>' + timerHtml +
-        '<div class="hint">→ next · ← back</div>' +
-      '</div>' +
-      '<div class="pillrow">' + homeBtn() + '</div>';
+        (ck.step === 0 ? '<div class="hint coach">→ next · ← back</div>' : '') +
+      '</div>';
   }
 
   function renderIdeate() {
@@ -676,15 +676,13 @@
           '<div class="bigq" style="font-size:24px;" data-content="ideate-question">' + esc(Q.q) + '</div>' +
           '<div style="display:flex;flex-wrap:wrap;justify-content:center;max-width:430px;">' + opts + '</div>' +
           (answered ? '<div class="hint">' + esc(answered) + '</div>' : '') +
-        '</div>' +
-        '<div class="pillrow">' + homeBtn() + '</div>';
+        '</div>';
       return;
     }
     if (id8.phase === 'loading') {
       card.innerHTML =
         '<div class="head"><span data-content="ideate-progress">IDEATION</span><span class="chip task" data-content="ideate-chip">Hackathon</span></div>' +
-        '<div class="center"><div class="bigq" style="font-size:22px;">coming up with ideas…</div></div>' +
-        '<div class="pillrow">' + homeBtn() + '</div>';
+        '<div class="center"><div class="bigq" style="font-size:22px;">coming up with ideas…</div></div>';
       return;
     }
     const list = id8.ideas || IDEAS;
@@ -713,12 +711,11 @@
         '<div class="idea-tag" data-content="idea-tagline">' + esc(idea.tag) + '</div>' +
         '<div class="tags">' + idea.tags.map(t => '<span class="chip">' + esc(t) + '</span>').join('') + '</div>' +
         details +
-        '<div class="hint">→ keep · ← drop</div>' +
+        (id8.pos === 0 ? '<div class="hint coach">→ keep · ← drop</div>' : '') +
       '</div>' +
       '<div class="pillrow">' +
         '<button class="pill" data-action="' + (id8.expanded ? 'Hide details' : 'Show details') + '" data-cmd="ideate:details">' +
           (id8.expanded ? 'Less' : 'Details') + '</button>' +
-        homeBtn() +
       '</div>';
   }
 
@@ -736,11 +733,10 @@
           '<div class="camera"><div class="camlabel">◉ your camera</div>' +
             '<img src="' + tr.photoImage + '" style="width:100%;border-radius:8px;max-height:140px;object-fit:cover;" alt="">' +
           '</div>' + rows +
-          '<div class="hint">\u{1F4F7} = new photo</div>' +
+          '<div class="hint coach">\u{1F4F7} = new photo</div>' +
         '</div>' +
         '<div class="pillrow">' +
           '<button class="pill" data-action="Back to demo scenes" data-cmd="tr:scenes">Demo scenes</button>' +
-          homeBtn() +
         '</div>';
       return;
     }
@@ -756,12 +752,11 @@
         '<span class="chip task" data-content="translate-scene">' + esc(sc.name) + ' → Spanish</span></div>' +
       '<div class="scrollable" id="scrollable">' +
         '<div class="camera"><div class="camlabel">◉ what you’re looking at</div>' + rows + '</div>' +
-        '<div class="hint">tap = translate · swipe = scene</div>' +
+        (tr.scene === 0 ? '<div class="hint coach">tap = translate · swipe = scene</div>' : '') +
       '</div>' +
       '<div class="pillrow">' +
         '<button class="pill" data-action="' + (allShown ? 'Show originals only' : 'Translate everything') + '" data-cmd="tr:all">' +
           (allShown ? 'Hide all' : 'Translate all') + '</button>' +
-        homeBtn() +
       '</div>';
   }
 
@@ -775,8 +770,7 @@
         '<div class="head"><span data-content="nav-progress">DIRECTIONS · where to?</span>' +
           '<span class="chip task" data-content="nav-chip">Walking</span></div>' +
         '<div class="scrollable" id="scrollable">' + rows + '</div>' +
-        '<div class="hint" data-content="nav-hint">or write a place with the pen</div>' +
-        '<div class="pillrow">' + homeBtn() + '</div>';
+        '<div class="hint" data-content="nav-hint">or write a place with the pen</div>';
       return;
     }
     if (nv.phase === 'arrived') {
@@ -798,9 +792,8 @@
         '<div class="bigq" style="font-size:56px;" data-content="nav-arrow">' + (NAV_ARROWS[s.dir] || '↑') + '</div>' +
         '<div class="steptext" data-content="nav-step">' + esc(s.text) + '</div>' +
         (s.dist ? '<div class="hint" data-content="nav-distance">in ' + esc(s.dist) + '</div>' : '') +
-        '<div class="hint">→ next turn · ← back</div>' +
-      '</div>' +
-      '<div class="pillrow">' + homeBtn() + '</div>';
+        (nv.step === 0 ? '<div class="hint coach">→ next turn · ← back</div>' : '') +
+      '</div>';
   }
 
   function renderPiano() {
