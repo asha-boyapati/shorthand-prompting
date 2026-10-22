@@ -1757,14 +1757,31 @@
     sendAck('Dismissed', false);
   }
 
+  // Run a model-suggested action, forgiving near-misses ("Home", "go home",
+  // trailing spaces) - and report whether anything actually happened.
+  function runAction(cmd) {
+    if (typeof cmd !== 'string') return false;
+    if (run(cmd.trim())) return true;
+    const c = cmd.trim().toLowerCase();
+    if (run(c)) return true;
+    if (/^(go +)?(home|menu|main *menu|launcher|exit|quit|back +to +menu)$/.test(c)) return run('home');
+    return false;
+  }
+
   function applyAssistant(actions, edits, state) {
+    let ran = 0;
     for (const cmd of actions) {
       const el = card.querySelector('[data-cmd="' + cmd + '"]');
       if (el) {
         el.classList.add('circled');
         setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
       }
-      run(cmd);
+      if (runAction(cmd)) ran++;
+    }
+    if (actions.length && !ran && !edits.length && !state) {
+      // every suggested action was unknown - say so instead of a false ✓
+      showToast('⚠ couldn’t do: ' + actions.join(', ').slice(0, 60));
+      sendAck('Unknown action', false);
     }
     // corrective edits: rewrite or restyle the targeted part of the display
     // (applied after actions, since actions may re-render the card)
