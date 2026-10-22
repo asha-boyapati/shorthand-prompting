@@ -1224,9 +1224,23 @@
     if (primary && run(primary.dataset.cmd)) {
       showToast(primary.dataset.action);
       sendAck(primary.dataset.action, true);
-    } else {
-      sendAck('nothing to confirm', false);
+      return;
     }
+    // no button to press: advance, like a flick right
+    const sc = swipeCmd('right');
+    if (sc && run(sc[0])) {
+      showToast(sc[1]);
+      sendAck(sc[1], true);
+      return;
+    }
+    // last resort: activate whatever the cursor is on
+    const el = elementUnderCursor();
+    if (el && run(el.dataset.cmd)) {
+      showToast(el.dataset.action);
+      sendAck(el.dataset.action, true);
+      return;
+    }
+    sendAck('nothing to confirm', false);
   }
 
   // shake = universal "never mind": cancel whatever is open, else go home
