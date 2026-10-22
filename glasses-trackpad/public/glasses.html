@@ -367,6 +367,7 @@
     { id: 'cook',      text: 'Cook carbonara', ready: true },
     { id: 'ideate',    text: 'Hackathon ideas', ready: true },
     { id: 'translate', text: 'Translate to Spanish', ready: true },
+    { id: 'nav',       text: 'Get directions', ready: true },
   ];
 
   // ====================== app state ======================
@@ -484,6 +485,39 @@
     tr.revealed = tr.scenes[tr.scene].lines.map(() => false);
   }
 
+  // --- directions state: canned walking routes; the AI invents new ones
+  // (writes state.nav) when the user writes a destination with the pen ---
+  const DESTS = [
+    { name: 'Campus library', eta: 12, steps: [
+      { dir: 'straight', text: 'Head north on College Ave', dist: '500 ft' },
+      { dir: 'right', text: 'Turn right on Oak St', dist: '0.2 mi' },
+      { dir: 'left', text: 'Turn left at the fountain', dist: '300 ft' },
+      { dir: 'straight', text: 'Cross the quad', dist: '400 ft' },
+      { dir: 'arrive', text: 'Library is on your right', dist: '' },
+    ] },
+    { name: 'Coffee shop', eta: 6, steps: [
+      { dir: 'straight', text: 'Head east on 3rd St', dist: '350 ft' },
+      { dir: 'left', text: 'Turn left on Main St', dist: '0.1 mi' },
+      { dir: 'arrive', text: 'Coffee shop is on your left', dist: '' },
+    ] },
+    { name: 'Train station', eta: 15, steps: [
+      { dir: 'straight', text: 'Head south on College Ave', dist: '0.3 mi' },
+      { dir: 'right', text: 'Turn right on Station Rd', dist: '0.2 mi' },
+      { dir: 'straight', text: 'Follow signs through the plaza', dist: '500 ft' },
+      { dir: 'left', text: 'Turn left at the clock tower', dist: '200 ft' },
+      { dir: 'arrive', text: 'Station entrance ahead', dist: '' },
+    ] },
+  ];
+  const NAV_ARROWS = { left: '←', right: '→', straight: '↑', arrive: '⚑' };
+  const nv = {};
+  function navReset() {
+    Object.assign(nv, { phase: 'pick', dest: '', eta: 0, steps: [], step: 0 });
+  }
+  function navSpeakStep() {
+    const s = nv.steps[nv.step];
+    if (s) speak(s.text + (s.dist ? ', ' + s.dist : ''));
+  }
+
   // --- piano state ---
   const WHITE_KEYS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
   const BLACK_KEYS = [
@@ -522,7 +556,7 @@
     } catch {}
   }
 
-  quizReset(); cookReset(); ideateReset(); translateReset(); pianoReset();
+  quizReset(); cookReset(); ideateReset(); translateReset(); navReset(); pianoReset();
 
   // ====================== rendering ======================
   function homeBtn() {
@@ -536,6 +570,7 @@
     else if (screen === 'cook') renderCook();
     else if (screen === 'ideate') renderIdeate();
     else if (screen === 'translate') renderTranslate();
+    else if (screen === 'nav') renderNav();
     else if (screen === 'piano') renderPiano();
     else renderSoon();
     updateHover();
@@ -730,6 +765,44 @@
       '</div>';
   }
 
+  function renderNav() {
+    if (nv.phase === 'pick') {
+      const rows = DESTS.map((d, i) =>
+        '<div class="prompt" data-action="' + esc(d.name) + '" data-cmd="nav:dest:' + i + '">' +
+        '<span class="mic">⚑</span>' + esc(d.name) +
+        '<span style="margin-left:auto;font-size:12px;color:var(--muted);">' + d.eta + ' min walk</span></div>').join('');
+      card.innerHTML =
+        '<div class="head"><span data-content="nav-progress">DIRECTIONS · where to?</span>' +
+          '<span class="chip task" data-content="nav-chip">Walking</span></div>' +
+        '<div class="scrollable" id="scrollable">' + rows + '</div>' +
+        '<div class="hint" data-content="nav-hint">or write a place with the pen</div>' +
+        '<div class="pillrow">' + homeBtn() + '</div>';
+      return;
+    }
+    if (nv.phase === 'arrived') {
+      card.innerHTML =
+        '<div class="head"><span data-content="nav-progress">DIRECTIONS · arrived</span>' +
+          '<span class="chip task" data-content="nav-dest">' + esc(nv.dest) + '</span></div>' +
+        '<div class="center">' +
+          '<div class="bigq" data-content="nav-step">⚑ You’re here</div>' +
+          '<div class="hint">' + esc(nv.dest) + (nv.eta ? ' · ' + nv.eta + ' min' : '') + '</div>' +
+        '</div>' +
+        '<div class="pillrow"><button class="pill" data-action="New destination" data-cmd="nav:restart">New place</button>' + homeBtn() + '</div>';
+      return;
+    }
+    const s = nv.steps[nv.step] || { dir: 'straight', text: '…', dist: '' };
+    card.innerHTML =
+      '<div class="head"><span data-content="nav-progress">DIRECTIONS · ' + (nv.step + 1) + '/' + nv.steps.length + '</span>' +
+        '<span class="chip task" data-content="nav-dest">' + esc(nv.dest) + '</span></div>' +
+      '<div class="center">' +
+        '<div class="bigq" style="font-size:56px;" data-content="nav-arrow">' + (NAV_ARROWS[s.dir] || '↑') + '</div>' +
+        '<div class="steptext" data-content="nav-step">' + esc(s.text) + '</div>' +
+        (s.dist ? '<div class="hint" data-content="nav-distance">in ' + esc(s.dist) + '</div>' : '') +
+        '<div class="hint">→ next turn · ← back</div>' +
+      '</div>' +
+      '<div class="pillrow">' + homeBtn() + '</div>';
+  }
+
   function renderPiano() {
     if (pn.finished) {
       card.innerHTML =
@@ -795,6 +868,7 @@
         if (p.id === 'cook') cookReset();
         if (p.id === 'ideate') ideateReset();
         if (p.id === 'translate') translateReset();
+        if (p.id === 'nav') navReset();
         if (p.id === 'piano') pianoReset();
       }
       render();
@@ -870,6 +944,27 @@
       else if (verb === 'next') translateScene(1);
       else if (verb === 'prev') translateScene(-1);
       else return false;
+      render();
+      return true;
+    }
+
+    if (ns === 'nav') {
+      if (verb === 'restart') { navReset(); render(); return true; }
+      if (verb === 'dest') {
+        const d = DESTS[+arg];
+        if (!d) return false;
+        Object.assign(nv, { phase: 'go', dest: d.name, eta: d.eta, steps: d.steps.map((s) => ({ ...s })), step: 0 });
+        render();
+        navSpeakStep();
+        return true;
+      }
+      if (nv.phase !== 'go') return false;
+      if (verb === 'next') {
+        if (nv.step >= nv.steps.length - 1) nv.phase = 'arrived';
+        else { nv.step++; navSpeakStep(); }
+      } else if (verb === 'back') {
+        if (nv.step > 0) { nv.step--; navSpeakStep(); }
+      } else return false;
       render();
       return true;
     }
@@ -988,6 +1083,7 @@
     if (screen === 'cook' && ck.phase === 'steps') return dir === 'right' ? ['cook:next', 'Next step'] : ['cook:back', 'Previous step'];
     if (screen === 'ideate' && id8.phase === 'cards' && !id8.finished) return dir === 'right' ? ['ideate:keep', 'Shortlisted ⭐'] : ['ideate:drop', 'Discarded'];
     if (screen === 'translate') return dir === 'right' ? ['tr:next', 'Next scene'] : ['tr:prev', 'Previous scene'];
+    if (screen === 'nav' && nv.phase === 'go') return dir === 'right' ? ['nav:next', 'Next turn'] : ['nav:back', 'Previous turn'];
     if (screen === 'piano' && !pn.finished) return dir === 'right' ? ['piano:next', 'Next lesson'] : ['piano:back', 'Previous lesson'];
     return null;
   }
@@ -1345,6 +1441,9 @@
     if (screen === 'translate') {
       return { translate: { scene: tr.scene, revealed: tr.revealed, scenes: tr.scenes } };
     }
+    if (screen === 'nav') {
+      return { nav: { phase: nv.phase, dest: nv.dest, eta: nv.eta, step: nv.step, steps: nv.steps } };
+    }
     return {};
   }
 
@@ -1420,6 +1519,25 @@
           ? tr.scenes[tr.scene].lines.map((_, i) => !!v.revealed[i])
           : tr.scenes[tr.scene].lines.map((_, i) => !!tr.revealed[i]);
         if (screen !== 'translate') screen = 'translate';
+        touched = true;
+      }
+      if (s.nav && typeof s.nav === 'object') {
+        const n = s.nav;
+        if (Array.isArray(n.steps) && n.steps.length && n.steps.every((x) => x && typeof x.text === 'string')) {
+          nv.steps = n.steps.slice(0, 15).map((x) => ({
+            dir: ['left', 'right', 'straight', 'arrive'].includes(x.dir) ? x.dir : 'straight',
+            text: String(x.text).slice(0, 90),
+            dist: String(x.dist || '').slice(0, 20),
+          }));
+          nv.phase = 'go';
+          nv.step = 0;
+        }
+        if (typeof n.dest === 'string' && n.dest) nv.dest = n.dest.slice(0, 40);
+        if (Number.isInteger(n.eta) && n.eta >= 0) nv.eta = n.eta;
+        if (['pick', 'go', 'arrived'].includes(n.phase)) nv.phase = n.phase;
+        if (Number.isInteger(n.step)) nv.step = Math.max(0, Math.min(Math.max(0, nv.steps.length - 1), n.step));
+        if (screen !== 'nav') screen = 'nav';
+        if (nv.phase === 'go') navSpeakStep();
         touched = true;
       }
       if (touched) render();
@@ -1534,6 +1652,11 @@
           { cmd: 'quiz:length:5', desc: 'restart as a short 5-question quiz' },
           { cmd: 'quiz:length:10', desc: 'restart with 10 questions' },
           { cmd: 'quiz:length:30', desc: 'restart with 30 questions (quiz:length:<n> accepts any 2-50)' },
+        ] : screen === 'nav' ? [
+          { cmd: 'nav:dest:0', desc: 'route to ' + DESTS[0].name },
+          { cmd: 'nav:dest:1', desc: 'route to ' + DESTS[1].name },
+          { cmd: 'nav:dest:2', desc: 'route to ' + DESTS[2].name },
+          { cmd: 'nav:restart', desc: 'pick a different destination' },
         ] : [],
         drawing: {
           // several short strokes (or one wide scribble) usually means the
