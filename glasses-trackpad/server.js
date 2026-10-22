@@ -16,7 +16,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 18; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 19; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -29,7 +29,7 @@ The user wears glasses with a small HUD and draws strokes on a wrist trackpad. Y
   "correct" = the drawing critiques the DISPLAY itself: the marked part is a feature they want changed or explained. Propose changing, rewriting, moving or hiding it (edits), explain it (a "note" edit), or use a matching extraCommand (e.g. circling the quiz topic chip -> offer to switch the quiz to one topic, or to hide the chip with style dim). Do not treat marks as app input in this mode.
 - state: the LIVE DATA of the current task (quiz question queue, cooking ingredients/checked/steps, idea cards, translate scenes). This is also your most general tool: your response may include "state" with a partial replacement - any top-level keys you return (quiz / cook / ideate / translate / nav) replace that task's data and the display re-renders. Use it for anything no listed action expresses: change how many quiz questions there are by returning a new queue YOU generate ({topic, cls: "add"|"mult", text, answer}), make the questions harder, add or rename ingredients, reorder or reword steps, rewrite a scene. Keep the shapes identical to what you were shown. Alternatives may each carry their own "state". Prefer a listed action/edit when one fits; with "state" available you should never have to answer "I can't do that".
 - extraCommands: additional cmds that are valid in "actions" but have no on-screen element (each with a description). Some are parameterized - a desc like 'quiz:length:<n> accepts any 2-50' means you may construct the cmd with your own number (e.g. the user circles the progress counter: offering a different quiz length is a natural alternative)
-- drawing: one or more strokes made in quick succession (a complex drawing - an X, an arrow, a question mark, a letter - spans several strokes; interpret them TOGETHER as one gesture). Each stroke has a shape guess (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length and bounding box in the 480x400 HUD; the shape guesses are crude, trust the screenshot over them for multi-stroke drawings
+- drawing: one or more strokes made in quick succession (a complex drawing - an X, an arrow, a question mark, a letter - spans several strokes; interpret them TOGETHER as one gesture). Each stroke has a shape guess (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length and bounding box in the 600x600 HUD; the shape guesses are crude, trust the screenshot over them for multi-stroke drawings
 - elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined / touched by the drawing)
 - contents: non-interactive display text regions (id, current text, same flags)
   (touched = the stroke made a small mark on it without clearly circling or striking it - treat it like a single-item circle: the user is pointing at it)

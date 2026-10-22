@@ -7,7 +7,7 @@
 <style>
   :root {
     --hud-glow: #4dd2ff;
-    --bg: #0d1117;
+    --bg: #000000; /* Meta Ray-Ban Display is additive: black = transparent */
     --panel: #161b22;
     --border: #30363d;
     --text: #e6edf3;
@@ -42,7 +42,7 @@
 
   #hud {
     position: relative;
-    width: 480px; height: 400px;
+    width: 600px; height: 600px; /* the real display is 600x600 */
     border-radius: 28px;
     border: 2px solid rgba(77, 210, 255, 0.55);
     box-shadow: 0 0 24px rgba(77, 210, 255, 0.35), inset 0 0 32px rgba(77, 210, 255, 0.08);
@@ -333,7 +333,7 @@
 
 <div id="hud">
   <div id="card"></div>
-  <canvas id="ink" width="480" height="400"></canvas>
+  <canvas id="ink" width="600" height="600"></canvas>
   <div id="flash"></div>
   <div id="cursor" class="hidden"></div>
   <div id="toast"></div>
@@ -343,7 +343,7 @@
 
 <script>
 (function () {
-  const W = 480, H = 400;
+  const W = 600, H = 600;
   const hud = document.getElementById('hud');
   const card = document.getElementById('card');
   const ink = document.getElementById('ink');
@@ -1692,7 +1692,7 @@
       if (!window.html2canvas) return null;
       const canvas = await Promise.race([
         // scale 2 so small handwriting stays legible to the model
-        html2canvas(hud, { backgroundColor: '#0d1117', logging: false, scale: 2 }),
+        html2canvas(hud, { backgroundColor: '#000000', logging: false, scale: 2 }),
         new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
       ]);
       return canvas ? canvas.toDataURL('image/jpeg', 0.75) : null;
