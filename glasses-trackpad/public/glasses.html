@@ -1652,7 +1652,9 @@
         screen,
         mode: drawIntent,
         state: taskState(),
-        extraCommands: screen === 'quiz' ? [
+        extraCommands: (screen === 'home' ? [] : [
+          { cmd: 'home', desc: 'close this task and go back to the main menu (the list of prompts)' },
+        ]).concat(screen === 'quiz' ? [
           { cmd: 'quiz:only:addition', desc: 'restart the quiz with addition questions only' },
           { cmd: 'quiz:only:multiplication', desc: 'restart the quiz with multiplication questions only' },
           { cmd: 'quiz:mixed', desc: 'restart the quiz with mixed topics' },
@@ -1664,7 +1666,7 @@
           { cmd: 'nav:dest:1', desc: 'route to ' + DESTS[1].name },
           { cmd: 'nav:dest:2', desc: 'route to ' + DESTS[2].name },
           { cmd: 'nav:restart', desc: 'pick a different destination' },
-        ] : [],
+        ] : []),
         drawing: {
           // several short strokes (or one wide scribble) usually means the
           // user is WRITING, not gesturing
