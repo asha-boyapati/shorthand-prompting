@@ -1188,7 +1188,7 @@
       proposal = null;
       clearTimeout(proposalTimer);
       if (dir === 'right') {
-        applyAssistant(p.actions, p.edits, p.state);
+        applyAssistant(p.actions, p.edits, p.state, p.say);
         showBubble('✓ done');
         sendAck('Confirmed — done', true);
       } else {
@@ -1215,7 +1215,7 @@
       const p = proposal;
       proposal = null;
       clearTimeout(proposalTimer);
-      applyAssistant(p.actions, p.edits, p.state);
+      applyAssistant(p.actions, p.edits, p.state, p.say);
       showBubble('✓ done');
       sendAck('Confirmed', true);
       return;
@@ -1744,7 +1744,7 @@
     proposal = null;
     clearTimeout(proposalTimer);
     hideChooser();
-    applyAssistant(Array.isArray(a.actions) ? a.actions : [], Array.isArray(a.edits) ? a.edits : [], a.state);
+    applyAssistant(Array.isArray(a.actions) ? a.actions : [], Array.isArray(a.edits) ? a.edits : [], a.state, a.label);
     showBubble('✓ ' + a.label);
     sendAck(a.label, true);
   }
@@ -1769,7 +1769,7 @@
     return false;
   }
 
-  function applyAssistant(actions, edits, state) {
+  function applyAssistant(actions, edits, state, say) {
     let ran = 0;
     let navigatedHome = false;
     for (const cmd of actions) {
@@ -1782,6 +1782,11 @@
         ran++;
         if (screen === 'home') navigatedHome = true;
       }
+    }
+    // nothing runnable, but the assistant SAYS it's navigating -> do it
+    if (!ran && !edits.length &&
+        /\b(home|main menu|menu|launcher|exit|quit)\b/i.test(String(say || ''))) {
+      if (run('home')) { ran++; navigatedHome = true; }
     }
     if (actions.length && !ran && !edits.length && !state) {
       // every suggested action was unknown - say so instead of a false ✓
@@ -1886,7 +1891,7 @@
     }
     if ((actions.length || edits.length) && msg.confidence !== 'high') {
       // the model proposes; the user confirms with a flick
-      proposal = { actions, edits, state: msg.state };
+      proposal = { actions, edits, state: msg.state, say: msg.say };
       clearTimeout(proposalTimer);
       proposalTimer = setTimeout(() => {
         if (proposal) { proposal = null; hideBubble(); showToast('suggestion expired'); }
@@ -1895,7 +1900,7 @@
       return;
     }
     showBubble(msg.say || '…');
-    applyAssistant(actions, edits, msg.state);
+    applyAssistant(actions, edits, msg.state, msg.say);
   }
 
   function localInterpret() {
