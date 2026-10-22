@@ -326,7 +326,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
-<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span>
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">g4</span>
   <button id="audioBtn" title="glasses audio"
     style="background:none;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 10px;">&#128266; on</button>
 </div>
@@ -1764,19 +1764,24 @@
     if (run(cmd.trim())) return true;
     const c = cmd.trim().toLowerCase();
     if (run(c)) return true;
-    if (/^(go +)?(home|menu|main *menu|launcher|exit|quit|back +to +menu)$/.test(c)) return run('home');
+    // any unknown action that talks about home/menu/exiting means the launcher
+    if (/\b(home|menu|launcher|exit|quit)\b/.test(c)) return run('home');
     return false;
   }
 
   function applyAssistant(actions, edits, state) {
     let ran = 0;
+    let navigatedHome = false;
     for (const cmd of actions) {
       const el = card.querySelector('[data-cmd="' + cmd + '"]');
       if (el) {
         el.classList.add('circled');
         setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
       }
-      if (runAction(cmd)) ran++;
+      if (runAction(cmd)) {
+        ran++;
+        if (screen === 'home') navigatedHome = true;
+      }
     }
     if (actions.length && !ran && !edits.length && !state) {
       // every suggested action was unknown - say so instead of a false ✓
@@ -1805,7 +1810,8 @@
       el.classList.add('circled');
       setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 900);
     }
-    if (state) applyState(state);
+    // a state echo must not drag the user back into a task they just left
+    if (state && !navigatedHome) applyState(state);
   }
 
   // A photo from the phone camera: show it in the translate task and ask
