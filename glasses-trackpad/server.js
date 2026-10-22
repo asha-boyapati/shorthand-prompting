@@ -3,9 +3,11 @@
 // gesture messages between them over WebSocket.
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFileSync } = require('child_process');
 const { WebSocketServer, WebSocket } = require('ws');
 
 // --- optional Claude-powered gesture interpretation -----------------------
@@ -199,7 +201,7 @@ const ROUTES = {
   '/test': 'test.html',
 };
 
-const server = http.createServer((req, res) => {
+const handleRequest = (req, res) => {
   const url = (req.url || '/').split('?')[0];
 
   if (url === '/') {
@@ -227,7 +229,31 @@ const server = http.createServer((req, res) => {
     });
     res.end(data);
   });
-});
+};
+
+const server = http.createServer(handleRequest);
+
+// --- HTTPS (self-signed) -------------------------------------------------
+// iOS only shows the motion-permission prompt (needed for the shake
+// gesture) on secure pages, so the trackpad must be served over https.
+// A self-signed cert is generated once with openssl and reused.
+const HTTPS_PORT = process.env.HTTPS_PORT || 8443;
+function ensureCert() {
+  const dir = path.join(__dirname, '.cert');
+  const key = path.join(dir, 'key.pem');
+  const cert = path.join(dir, 'cert.pem');
+  try {
+    if (!fs.existsSync(key) || !fs.existsSync(cert)) {
+      fs.mkdirSync(dir, { recursive: true });
+      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', key, '-out', cert, '-days', '825', '-subj', '/CN=glasses-trackpad'],
+        { stdio: 'ignore' });
+    }
+    return { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
+  } catch {
+    return null; // no openssl - https (and iOS shake) unavailable
+  }
+}
 
 // --- WebSocket relay ---------------------------------------------------
 // Clients identify themselves with {type:"hello", role:"display"|"trackpad"}.
@@ -235,7 +261,6 @@ const server = http.createServer((req, res) => {
 // displays are relayed back to trackpads. Connection status is broadcast
 // to both sides whenever the roster changes.
 
-const wss = new WebSocketServer({ server });
 const clients = new Set(); // { ws, role }
 
 function countRole(role) {
@@ -263,7 +288,7 @@ function broadcastStatus() {
   sendTo('trackpad', status);
 }
 
-wss.on('connection', (ws) => {
+function onConnection(ws) {
   const client = { ws, role: null };
   clients.add(client);
 
@@ -331,7 +356,9 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('error', () => {});
-});
+}
+
+new WebSocketServer({ server }).on('connection', onConnection);
 
 function lanIP() {
   for (const ifaces of Object.values(os.networkInterfaces())) {
@@ -342,6 +369,13 @@ function lanIP() {
   return 'localhost';
 }
 
+const tlsCreds = ensureCert();
+if (tlsCreds) {
+  const httpsServer = https.createServer(tlsCreds, handleRequest);
+  new WebSocketServer({ server: httpsServer }).on('connection', onConnection);
+  httpsServer.listen(HTTPS_PORT, '0.0.0.0');
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   const ip = lanIP();
   console.log('');
@@ -350,7 +384,12 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Glasses assistant (laptop): http://localhost:${PORT}/glasses`);
   console.log(`  GitHub mock (laptop):      http://localhost:${PORT}/display`);
   console.log(`  Quiz only (laptop):        http://localhost:${PORT}/quiz`);
-  console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad`);
+  if (tlsCreds) {
+    console.log(`  Trackpad (phone, same wifi): https://${ip}:${HTTPS_PORT}/trackpad`);
+    console.log('    (accept the certificate warning once - https is what lets iOS ask for motion permission / shake)');
+  } else {
+    console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad  (no openssl found - shake won't work on iOS)`);
+  }
   console.log(`  Test bench (laptop only):  http://localhost:${PORT}/test`);
   if (USE_OPENAI) {
     console.log(`  Drawing interpretation: OpenAI (${OPENAI_MODEL}) - prompt v${PROMPT_VERSION}`);

@@ -346,7 +346,8 @@
   // Single taps are therefore dispatched after a short delay.
   const LONGPRESS_MS = 550;
   const DOUBLETAP_MS = 300;
-  const SQUEEZE_MS = 450;
+  const SQUEEZE_MS = 400;
+  const SQUEEZE_SLOP = 32; // real fingers drift; only clear movement cancels a squeeze
   let longPressTimer = null, longPressFired = false;
   let lastTapAt = 0, pendingTapTimer = null;
   // "squeeze" = two fingers pressed and held still (hardware squeeze
@@ -409,10 +410,21 @@
     motionReady = true;
     try {
       if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-        // iOS: must be requested from a user gesture
+        // iOS: must be requested from a user gesture, and ONLY works on https
+        if (location.protocol !== 'https:') {
+          showBanner('shake needs the https:// link (see server log)');
+          return;
+        }
         DeviceMotionEvent.requestPermission()
-          .then((s) => { if (s === 'granted') window.addEventListener('devicemotion', onMotion); })
-          .catch(() => {});
+          .then((s) => {
+            if (s === 'granted') {
+              window.addEventListener('devicemotion', onMotion);
+              showBanner('\u{1F300} shake enabled');
+            } else {
+              showBanner('motion blocked — close this tab, reopen, and tap Allow');
+            }
+          })
+          .catch(() => { showBanner('motion blocked — reload and tap Allow'); });
       } else {
         window.addEventListener('devicemotion', onMotion);
       }
@@ -439,6 +451,10 @@
       send({ type: 'scroll', dx: ev.deltaX * SCROLL_SENS, dy: ev.deltaY * SCROLL_SENS });
     }, { passive: false });
   }
+
+  // iOS Safari: stop two-finger touches from becoming a pinch-zoom
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  document.addEventListener('gesturechange', (e) => e.preventDefault());
 
   pad.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
@@ -504,11 +520,12 @@
     if (dx === 0 && dy === 0) return;
 
     if (mode === 'scroll') {
-      if (Math.hypot(p.x - st.startX, p.y - st.startY) > TAP_SLOP) {
+      if (Math.hypot(p.x - st.startX, p.y - st.startY) > SQUEEZE_SLOP) {
         twoMoved = true;
         clearTimeout(squeezeTimer);
       }
       if (squeezeFired) return; // squeeze consumed this touch
+      if (!twoMoved) return;    // still deciding squeeze vs scroll - don't jitter-scroll
       // Two-finger drag: natural scrolling. Use only the first pointer's
       // movement so the two fingers don't double-count.
       if (ev.pointerId === firstPointerId()) {
