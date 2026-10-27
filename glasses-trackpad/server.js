@@ -16,17 +16,17 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 21; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 22; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
 The user wears glasses with a small HUD and draws strokes on a wrist trackpad. You receive JSON describing:
 - screen: which app screen is showing
-- mode: the user's declared drawing intent, chosen on the trackpad:
-  "interact" = the drawing is INPUT to the app. FIRST decide from the screenshot whether the drawing is HANDWRITING (letters, words, numbers) or a gesture; drawing.looksLikeWriting is a geometric hint, but the screenshot is the truth.
+- mode: always "steer" - the pad is in steer mode: the ink (and any spoken words) STEER the task, whether that means driving it forward (select, answer, navigate, confirm) or correcting how something is shown (change, rewrite, explain, restyle a part via edits). Decide from what the mark is on and what would help; both repertoires are always available.
+  FIRST decide from the screenshot whether the drawing is HANDWRITING (letters, words, numbers) or a gesture; drawing.looksLikeWriting is a geometric hint, but the screenshot is the truth.
     If it is handwriting: transcribe it and treat the text as something the user just SAID to you. The circled/crossed/underlined flags are then meaningless artifacts of writing on top of the UI - IGNORE them completely (writing "tools" across the ingredient list is a question about tools, NOT a request to cross off ingredients). Respond to the meaning in the screen's context: a written answer to the on-screen question means they are answering it (check it: if right, say so and use the matching action; if wrong, say the correct answer); "yes"/"no" answers your previous question; any other written word or phrase is a request or query (e.g. "tools" while cooking -> briefly list the tools the recipe needs). For written queries an informative "say" with empty actions is a GOOD response - the act-first rule below applies to gestures, not writing. Written NAVIGATION words ("home", "menu", "back", "exit", "quit") usually mean the matching extraCommand (e.g. "home" = close the task, back to the main menu) - when another reading also makes sense in the task (on directions, "home" could equally be a destination), offer BOTH as alternatives, navigation first. When you ask "did you mean X?", X itself MUST be one of the options.
-    If it is a gesture: select, activate, answer, navigate per the vocabulary below.
-  "correct" = the drawing critiques the DISPLAY itself: the marked part is a feature they want changed or explained. Propose changing, rewriting, moving or hiding it (edits), explain it (a "note" edit), or use a matching extraCommand (e.g. circling the quiz topic chip -> offer to switch the quiz to one topic, or to hide the chip with style dim). Do not treat marks as app input in this mode.
+    If it is a gesture: select, activate, answer, navigate per the vocabulary below - or, when the mark targets how something is DISPLAYED (a setting chip, a wording, a layout element), correct it: change, rewrite, hide (edits), explain it (a "note" edit), or use a matching extraCommand.
+- speech: words the user SPOKE aloud (optional). Treat speech exactly like handwriting: a request, an answer, or a command in the screen's context. When inkOnScreen is true the screenshot also carries a glowing drawing: interpret the words and the mark as ONE utterance - the words usually say WHAT, the mark says WHERE ("what is this" + a circle = explain the circled thing).
 - state: the LIVE DATA of the current task (quiz question queue, cooking ingredients/checked/steps, idea cards, translate scenes). This is also your most general tool: your response may include "state" with a partial replacement - any top-level keys you return (quiz / cook / ideate / translate / nav) replace that task's data and the display re-renders. Use it for anything no listed action expresses: change how many quiz questions there are by returning a new queue YOU generate ({topic, cls: "add"|"mult", text, answer}), make the questions harder, add or rename ingredients, reorder or reword steps, rewrite a scene. Keep the shapes identical to what you were shown. Alternatives may each carry their own "state". Prefer a listed action/edit when one fits; with "state" available you should never have to answer "I can't do that".
 - extraCommands: additional cmds that are valid in "actions" but have no on-screen element (each with a description). Some are parameterized - a desc like 'quiz:length:<n> accepts any 2-50' means you may construct the cmd with your own number (e.g. the user circles the progress counter: offering a different quiz length is a natural alternative)
 - drawing: one or more strokes made in quick succession (a complex drawing - an X, an arrow, a question mark, a letter - spans several strokes; interpret them TOGETHER as one gesture). Each stroke has a shape guess (circle | line-horizontal | line-vertical | line-diagonal | scribble | freeform), closed flag, length and bounding box in the 600x600 HUD; the shape guesses are crude, trust the screenshot over them for multi-stroke drawings
@@ -203,6 +203,11 @@ const ROUTES = {
 const handleRequest = (req, res) => {
   const url = (req.url || '/').split('?')[0];
 
+  if (url === '/tts') {
+    handleTTS(req, res, new URL(req.url, 'http://x').searchParams);
+    return;
+  }
+
   if (url === '/') {
     res.writeHead(302, { Location: '/glasses' });
     res.end();
@@ -229,6 +234,50 @@ const handleRequest = (req, res) => {
     res.end(data);
   });
 };
+
+// --- optional ElevenLabs speech output --------------------------------
+// With ELEVENLABS_API_KEY set, the glasses fetch natural TTS audio from
+// /tts?text=... ; without it they fall back to the browser's voice.
+const ELEVEN_KEY = process.env.ELEVENLABS_API_KEY || '';
+const ELEVEN_VOICE = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'; // "Rachel"
+const ELEVEN_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_turbo_v2_5';
+async function handleTTS(req, res, query) {
+  const text = (query.get('text') || '').slice(0, 300);
+  if (!ELEVEN_KEY) {
+    res.writeHead(503, { 'Content-Type': 'text/plain' });
+    res.end('no ELEVENLABS_API_KEY set');
+    return;
+  }
+  if (!text.trim()) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('missing text');
+    return;
+  }
+  try {
+    const r = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE}?output_format=mp3_44100_64`,
+      {
+        method: 'POST',
+        headers: { 'xi-api-key': ELEVEN_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, model_id: ELEVEN_MODEL }),
+      },
+    );
+    if (!r.ok) {
+      const msg = await r.text().catch(() => '');
+      console.log(`[elevenlabs] HTTP ${r.status}: ${msg.slice(0, 120)}`);
+      res.writeHead(502, { 'Content-Type': 'text/plain' });
+      res.end('tts failed');
+      return;
+    }
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' });
+    res.end(buf);
+  } catch (err) {
+    console.log('[elevenlabs] error:', err.message);
+    res.writeHead(502, { 'Content-Type': 'text/plain' });
+    res.end('tts failed');
+  }
+}
 
 const server = http.createServer(handleRequest);
 
@@ -260,6 +309,7 @@ function broadcastStatus() {
     type: 'status',
     displays: countRole('display'),
     trackpads: countRole('trackpad'),
+    tts: !!ELEVEN_KEY,
   };
   sendTo('display', status);
   sendTo('trackpad', status);
@@ -356,6 +406,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Quiz only (laptop):        http://localhost:${PORT}/quiz`);
   console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad`);
   console.log(`  Test bench (laptop only):  http://localhost:${PORT}/test`);
+  console.log(ELEVEN_KEY
+    ? '  Speech output: ElevenLabs'
+    : '  Speech output: browser voice (set ELEVENLABS_API_KEY for a natural one)');
   if (USE_OPENAI) {
     console.log(`  Drawing interpretation: OpenAI (${OPENAI_MODEL}) - prompt v${PROMPT_VERSION}`);
   } else if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {

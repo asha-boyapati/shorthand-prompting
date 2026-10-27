@@ -1103,6 +1103,7 @@
   function handle(msg) {
     switch (msg.type) {
       case 'status': {
+        serverTTS = !!msg.tts;
         const n = msg.trackpads | 0;
         setStatus(n > 0, n > 0 ? 'trackpad connected (' + n + ')' : 'waiting for trackpad…');
         cursor.classList.toggle('hidden', n === 0);
@@ -1121,12 +1122,10 @@
       case 'shake': doShake(); break;
       case 'squeeze': doSqueeze(); break;
       case 'assistant': onAssistant(msg); break;
+      case 'talk': toggleListening(); break;
       case 'mode':
         cursor.classList.toggle('pen', msg.mode === 'draw');
-        drawIntent = msg.intent === 'correct' ? 'correct' : 'interact';
-        showToast(msg.mode === 'draw'
-          ? (drawIntent === 'correct' ? '\u{1F527} draw · corrective' : '✋ draw · interactive')
-          : '○ cursor mode');
+        showToast(msg.mode === 'draw' ? '✎ steer — ink & words go to the AI' : '✋ interact mode');
         break;
     }
   }
@@ -1433,7 +1432,6 @@
     return { pts, L, closed, shape, minX, minY, maxX, maxY, avgY: sumY / pts.length };
   }
 
-  let drawIntent = 'interact';
 
   // ---- the model's universal lever: read & replace live task state ----
   function taskState() {
@@ -1555,6 +1553,97 @@
     }
   }
 
+  function extraCmds() {
+    return (screen === 'home' ? [] : [
+      { cmd: 'home', desc: 'close this task and go back to the main menu (the list of prompts)' },
+    ]).concat(screen === 'quiz' ? [
+      { cmd: 'quiz:only:addition', desc: 'restart the quiz with addition questions only' },
+      { cmd: 'quiz:only:multiplication', desc: 'restart the quiz with multiplication questions only' },
+      { cmd: 'quiz:mixed', desc: 'restart the quiz with mixed topics' },
+      { cmd: 'quiz:length:5', desc: 'restart as a short 5-question quiz' },
+      { cmd: 'quiz:length:10', desc: 'restart with 10 questions' },
+      { cmd: 'quiz:length:30', desc: 'restart with 30 questions (quiz:length:<n> accepts any 2-50)' },
+    ] : screen === 'nav' ? [
+      { cmd: 'nav:dest:0', desc: 'route to ' + DESTS[0].name },
+      { cmd: 'nav:dest:1', desc: 'route to ' + DESTS[1].name },
+      { cmd: 'nav:dest:2', desc: 'route to ' + DESTS[2].name },
+      { cmd: 'nav:restart', desc: 'pick a different destination' },
+    ] : []);
+  }
+
+  // --- speech input: double-tap on the pad -> the glasses listen ---------
+  let rec = null, listening = false;
+  function toggleListening() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      showToast('\u{1F3A4} no speech recognition in this browser');
+      sendAck('No mic support here', false);
+      return;
+    }
+    if (listening) { try { rec.stop(); } catch {} return; }
+    try {
+      rec = new SR();
+      rec.lang = 'en-US';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.onresult = (e) => {
+        listening = false;
+        const t = e.results && e.results[0] && e.results[0][0] ? e.results[0][0].transcript : '';
+        sendSpeech(t);
+      };
+      rec.onerror = (e) => {
+        listening = false;
+        hideBubble();
+        showToast('\u{1F3A4} ' + (e.error === 'not-allowed'
+          ? 'mic blocked \u2014 allow it in the browser' : 'speech error: ' + e.error));
+        sendAck('Mic problem', false);
+      };
+      rec.onend = () => { if (listening) { listening = false; hideBubble(); } };
+      listening = true;
+      showBubble('\u{1F3A4} listening\u2026', true);
+      sendAck('Listening', true);
+      rec.start();
+    } catch {
+      listening = false;
+      hideBubble();
+      showToast('\u{1F3A4} could not start the mic');
+    }
+  }
+
+  // Spoken words go through the same interpretation pipeline as ink. If ink
+  // is on screen, the screenshot carries it - words say WHAT, marks say WHERE.
+  function sendSpeech(text) {
+    if (!text || !text.trim()) { hideBubble(); showToast('\u{1F3A4} heard nothing'); return; }
+    if (!(ws && ws.readyState === WebSocket.OPEN)) { hideBubble(); showToast('no server connection'); return; }
+    pending = { closed: false, hits: [], speech: true };
+    clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(() => localInterpret(), 12000);
+    showBubble('\u{1F3A4} \u201C' + text.trim().slice(0, 60) + '\u201D \u2026', true);
+    const payload = {
+      screen,
+      mode: 'steer',
+      speech: text.trim().slice(0, 300),
+      state: taskState(),
+      extraCommands: extraCmds(),
+      elements: [...card.querySelectorAll('[data-action]')].map((el) => ({
+        label: el.dataset.action, cmd: el.dataset.cmd,
+      })),
+      contents: [...card.querySelectorAll('[data-content]')].map((el) => ({
+        id: el.dataset.content, text: el.textContent.trim().slice(0, 200),
+      })),
+      inkOnScreen: strokes.length > 0,
+    };
+    captureHud().then((image) => {
+      if (image) payload.image = image;
+      if (strokes.length) clearInk(true);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'interpret', payload }));
+      } else {
+        localInterpret();
+      }
+    });
+  }
+
   function interpretStrokes() {
     const an = strokes.filter((s) => s.length >= 8).map(analyzeStroke);
     if (!an.length) { clearInk(true); return; }
@@ -1651,23 +1740,9 @@
       pendingTimer = setTimeout(() => localInterpret(), 12000);
       const payload = {
         screen,
-        mode: drawIntent,
+        mode: 'steer',
         state: taskState(),
-        extraCommands: (screen === 'home' ? [] : [
-          { cmd: 'home', desc: 'close this task and go back to the main menu (the list of prompts)' },
-        ]).concat(screen === 'quiz' ? [
-          { cmd: 'quiz:only:addition', desc: 'restart the quiz with addition questions only' },
-          { cmd: 'quiz:only:multiplication', desc: 'restart the quiz with multiplication questions only' },
-          { cmd: 'quiz:mixed', desc: 'restart the quiz with mixed topics' },
-          { cmd: 'quiz:length:5', desc: 'restart as a short 5-question quiz' },
-          { cmd: 'quiz:length:10', desc: 'restart with 10 questions' },
-          { cmd: 'quiz:length:30', desc: 'restart with 30 questions (quiz:length:<n> accepts any 2-50)' },
-        ] : screen === 'nav' ? [
-          { cmd: 'nav:dest:0', desc: 'route to ' + DESTS[0].name },
-          { cmd: 'nav:dest:1', desc: 'route to ' + DESTS[1].name },
-          { cmd: 'nav:dest:2', desc: 'route to ' + DESTS[2].name },
-          { cmd: 'nav:restart', desc: 'pick a different destination' },
-        ] : []),
+        extraCommands: extraCmds(),
         drawing: {
           // several short strokes (or one wide scribble) usually means the
           // user is WRITING, not gesturing
@@ -1967,12 +2042,26 @@
   let audioOn = true;
   try { audioOn = localStorage.getItem('ga-audio') !== 'off'; } catch {}
   let lastSpoken = '';
+  let serverTTS = false;   // server broadcasts tts:true when ELEVENLABS_API_KEY is set
+  let ttsAudio = null;     // the <audio> playing the current ElevenLabs line
   function speak(text) {
-    if (!audioOn || !('speechSynthesis' in window)) return;
+    if (!audioOn) return;
+    lastSpoken = String(text).slice(0, 220);
+    if (serverTTS) {
+      try { if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; } } catch {}
+      try {
+        ttsAudio = new Audio('/tts?text=' + encodeURIComponent(lastSpoken));
+        ttsAudio.play().catch(() => { ttsAudio = null; browserSpeak(lastSpoken); });
+        return;
+      } catch { ttsAudio = null; }
+    }
+    browserSpeak(lastSpoken);
+  }
+  function browserSpeak(text) {
+    if (!('speechSynthesis' in window)) return;
     try {
-      lastSpoken = String(text).slice(0, 220);
       speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(lastSpoken);
+      const u = new SpeechSynthesisUtterance(text);
       u.rate = 1.08;
       speechSynthesis.speak(u);
     } catch {}
@@ -1980,6 +2069,18 @@
 
   // triangle glyph: pause if speaking, resume if paused, repeat if silent
   function speechControl() {
+    // ElevenLabs path: pause/resume/replay the audio element
+    if (serverTTS) {
+      if (!audioOn) { showToast('\u{1F507} audio is off'); sendAck('Audio is off', false); return; }
+      if (ttsAudio && !ttsAudio.paused && !ttsAudio.ended) {
+        ttsAudio.pause(); showToast('\u23F8 paused'); sendAck('Paused', true);
+      } else if (ttsAudio && ttsAudio.paused && !ttsAudio.ended) {
+        ttsAudio.play().catch(() => {}); showToast('\u25B6 resumed'); sendAck('Resumed', true);
+      } else if (lastSpoken) {
+        speak(lastSpoken); showToast('\u21BB repeating'); sendAck('Repeating', true);
+      } else { showToast('nothing to repeat'); sendAck('Nothing to repeat', false); }
+      return;
+    }
     if (!('speechSynthesis' in window)) return;
     try {
       if (!audioOn) {
@@ -2034,7 +2135,10 @@
   }
   audioBtn.addEventListener('click', function () {
     audioOn = !audioOn;
-    if (!audioOn) try { speechSynthesis.cancel(); } catch {}
+    if (!audioOn) {
+      try { speechSynthesis.cancel(); } catch {}
+      try { if (ttsAudio) ttsAudio.pause(); } catch {}
+    }
     try { localStorage.setItem('ga-audio', audioOn ? 'on' : 'off'); } catch {}
     renderAudioBtn();
   });

@@ -118,9 +118,6 @@
   #clearbtn { display: none; flex: 0 0 auto; padding: 12px 18px; }
   body.drawing #clearbtn { display: block; }
   body.drawing #pad { border-color: rgba(77,210,255,0.7); }
-  #intentbar { display: none; gap: 10px; padding: 0 12px 14px; }
-  body.drawing #intentbar { display: flex; }
-  #intentbar .modebtn.active { color: #ffc14d; border-color: #ffc14d; box-shadow: 0 0 12px rgba(255,193,77,0.25); }
 
   #banner {
     position: fixed;
@@ -155,34 +152,30 @@
       <div class="row"><span>flick &rarr; / &larr;</span><span>yes / no</span></div>
       <div class="row"><span>2 fingers</span><span>scroll</span></div>
       <div class="sect">anytime</div>
-      <div class="row"><span>hold</span><span>start drawing</span></div>
+      <div class="row"><span>hold</span><span>steer (draw)</span></div>
+      <div class="row"><span>double-tap</span><span>talk</span></div>
       <div class="row"><span>flick &darr;</span><span>go home</span></div>
     </div>
     <div class="drawrows">
-      <div class="sect">now drawing &mdash; ink goes to the AI</div>
+      <div class="sect">steering &mdash; ink &amp; words go to the AI</div>
       <div class="row"><span>circle</span><span>tell me more</span></div>
       <div class="row"><span>strike</span><span>dismiss</span></div>
       <div class="row"><span>write</span><span>say anything</span></div>
       <div class="row"><span>&#9651;</span><span>pause / replay voice</span></div>
       <div class="sect">anytime</div>
-      <div class="row"><span>hold</span><span>back to cursor</span></div>
-      <div class="row"><span>double-tap</span><span>ask vs fix</span></div>
+      <div class="row"><span>hold</span><span>back to interact</span></div>
+      <div class="row"><span>double-tap</span><span>talk</span></div>
     </div>
   </div>
 </div>
 
 <div id="modebar">
-  <div class="modebtn active" id="cursorBtn">&#9675; Cursor</div>
-  <div class="modebtn" id="drawBtn">&#9998; Draw</div>
+  <div class="modebtn active" id="cursorBtn">&#9995; Interact</div>
+  <div class="modebtn" id="drawBtn">&#9998; Steer</div>
   <div class="modebtn" id="photoBtn">&#128247;</div>
   <div class="modebtn" id="clearbtn">Clear</div>
 </div>
 <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none">
-
-<div id="intentbar">
-  <div class="modebtn active" id="interactBtn">&#9995; Interact</div>
-  <div class="modebtn" id="correctBtn">&#128295; Correct</div>
-</div>
 
 <div id="banner"></div>
 
@@ -265,37 +258,22 @@
     if (d) { d.remove(); dots.delete(id); }
   }
 
-  // --- input mode (cursor vs draw, and draw intent) ---
+  // --- input mode: interact (cursor) vs steer (draw) ---
   const cursorBtn = document.getElementById('cursorBtn');
   const drawBtn = document.getElementById('drawBtn');
   const clearBtn = document.getElementById('clearbtn');
-  const interactBtn = document.getElementById('interactBtn');
-  const correctBtn = document.getElementById('correctBtn');
   let inputMode = 'cursor';
-  let drawIntent = 'interact'; // interact = drawings are input; correct = drawings critique the UI
 
-  function sendMode() {
-    send({ type: 'mode', mode: inputMode, intent: drawIntent });
-  }
   function setInputMode(m) {
     inputMode = m;
     cursorBtn.classList.toggle('active', m === 'cursor');
     drawBtn.classList.toggle('active', m === 'draw');
     document.body.classList.toggle('drawing', m === 'draw');
-    sendMode();
-    vibrate(10);
-  }
-  function setIntent(i) {
-    drawIntent = i;
-    interactBtn.classList.toggle('active', i === 'interact');
-    correctBtn.classList.toggle('active', i === 'correct');
-    sendMode();
+    send({ type: 'mode', mode: inputMode });
     vibrate(10);
   }
   cursorBtn.addEventListener('click', () => setInputMode('cursor'));
   drawBtn.addEventListener('click', () => setInputMode('draw'));
-  interactBtn.addEventListener('click', () => setIntent('interact'));
-  correctBtn.addEventListener('click', () => setIntent('correct'));
   clearBtn.addEventListener('click', () => { send({ type: 'draw', phase: 'clear' }); vibrate(10); });
 
   // --- camera: snap a photo with the phone, send it to the glasses ---
@@ -330,8 +308,8 @@
   let strokeLive = false;   // draw mode: stroke already streaming to display
   let strokeBuf = [];       // draw mode: buffered move deltas until tap/draw is decided
 
-  // Eyes-free mode switching (phone held at your side, out of sight):
-  // hold still ~0.6s = toggle draw/cursor; double-tap = toggle interact/correct.
+  // Eyes-free gestures (phone held at your side, out of sight):
+  // hold still ~0.6s = toggle steer/interact; double-tap = talk to the AI.
   // Single taps are therefore dispatched after a short delay.
   const LONGPRESS_MS = 550;
   const DOUBLETAP_MS = 300;
@@ -347,11 +325,12 @@
   function queueTap() {
     const now = performance.now();
     if (pendingTapTimer && now - lastTapAt < DOUBLETAP_MS) {
-      // double-tap: toggle interact/correct instead of two clicks
+      // double-tap: push-to-talk - the glasses listen on their mic
       clearTimeout(pendingTapTimer);
       pendingTapTimer = null;
       lastTapAt = 0;
-      setIntent(drawIntent === 'interact' ? 'correct' : 'interact');
+      send({ type: 'talk' });
+      showBanner('\u{1F3A4} talk');
       vibrate([20, 40, 20, 40, 20]);
       return;
     }
