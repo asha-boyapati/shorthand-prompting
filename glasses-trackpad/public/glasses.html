@@ -870,9 +870,11 @@
 
     if (ns === 'quiz') {
       if (verb === 'only') {
-        quizReset();
+        // switching topic keeps the quiz the same length
         const topic = arg === 'addition' ? 'Addition' : 'Multiplication';
-        qz.queue = qz.queue.filter((q) => q.topic === topic);
+        const total = (qz.queue && qz.queue.length) || 20;
+        quizReset(total * 2); // generate plenty of both topics
+        qz.queue = qz.queue.filter((q) => q.topic === topic).slice(0, total);
         screen = 'quiz';
         render();
         return true;
