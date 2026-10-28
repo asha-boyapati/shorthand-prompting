@@ -308,6 +308,67 @@
   let strokeLive = false;   // draw mode: stroke already streaming to display
   let strokeBuf = [];       // draw mode: buffered move deltas until tap/draw is decided
 
+  // --- push-to-talk ------------------------------------------------------
+  // Preferred: record on the PHONE mic (needs the https link - iOS only
+  // allows the microphone on secure pages) and let the server transcribe.
+  // Fallback: tell the glasses to listen on the laptop mic.
+  let recorder = null, recChunks = [], recTimer = null;
+  function canRecordHere() {
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  }
+  async function talkGesture() {
+    if (recorder && recorder.state === 'recording') { stopRecording(); return; }
+    if (canRecordHere()) {
+      try {
+        await startRecording();
+        return;
+      } catch (e) {
+        showBanner('\u{1F3A4} phone mic blocked \u2014 using laptop mic');
+      }
+    } else if (location.protocol !== 'https:') {
+      showBanner('\u{1F3A4} laptop mic (phone mic needs the https link)');
+    }
+    send({ type: 'talk' });
+  }
+  async function startRecording() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm']
+      .find((m) => window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recChunks = [];
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+    recorder.onstop = async () => {
+      clearTimeout(recTimer);
+      stream.getTracks().forEach((t) => t.stop());
+      const type = recorder.mimeType || mime || 'audio/mp4';
+      const blob = new Blob(recChunks, { type });
+      recorder = null;
+      if (blob.size < 1200) { showBanner('\u{1F3A4} heard nothing'); return; }
+      showBanner('\u{1F3A4} transcribing\u2026');
+      try {
+        const r = await fetch('/stt', { method: 'POST', headers: { 'Content-Type': type }, body: blob });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.text || !j.text.trim()) {
+          showBanner(r.status === 503
+            ? 'voice needs the OpenAI key on the server'
+            : '\u{1F3A4} could not transcribe \u2014 try again');
+          return;
+        }
+        showBanner('\u{1F3A4} \u201C' + j.text.trim().slice(0, 40) + '\u201D');
+        send({ type: 'speech', text: j.text.trim().slice(0, 300) });
+        vibrate([30, 40, 30]);
+      } catch {
+        showBanner('\u{1F3A4} upload failed \u2014 try again');
+      }
+    };
+    recorder.start();
+    showBanner('\u{1F3A4} recording \u2014 double-tap when done');
+    recTimer = setTimeout(() => stopRecording(), 15000);
+  }
+  function stopRecording() {
+    try { if (recorder && recorder.state === 'recording') recorder.stop(); } catch {}
+  }
+
   // Eyes-free gestures (phone held at your side, out of sight):
   // hold still ~0.6s = toggle steer/interact; double-tap = talk to the AI.
   // Single taps are therefore dispatched after a short delay.
@@ -316,7 +377,7 @@
   let longPressTimer = null, longPressFired = false;
   let lastTapAt = 0, pendingTapTimer = null;
   // tiny self-diagnosis readout: page version · fingers detected
-  const PAD_V = 'v4';
+  const PAD_V = 'v5';
   const gdbg = document.getElementById('gdbg');
   function updateDbg() {
     gdbg.textContent = PAD_V + (active.size ? ' ' + '●'.repeat(Math.min(active.size, 3)) : '');
@@ -325,12 +386,11 @@
   function queueTap() {
     const now = performance.now();
     if (pendingTapTimer && now - lastTapAt < DOUBLETAP_MS) {
-      // double-tap: push-to-talk - the glasses listen on their mic
+      // double-tap: push-to-talk (phone mic when possible, else laptop mic)
       clearTimeout(pendingTapTimer);
       pendingTapTimer = null;
       lastTapAt = 0;
-      send({ type: 'talk' });
-      showBanner('\u{1F3A4} talk');
+      talkGesture();
       vibrate([20, 40, 20, 40, 20]);
       return;
     }

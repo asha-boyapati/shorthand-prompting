@@ -3,9 +3,11 @@
 // gesture messages between them over WebSocket.
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFileSync } = require('child_process');
 const { WebSocketServer, WebSocket } = require('ws');
 
 // --- optional Claude-powered gesture interpretation -----------------------
@@ -208,6 +210,11 @@ const handleRequest = (req, res) => {
     return;
   }
 
+  if (url === '/stt' && req.method === 'POST') {
+    handleSTT(req, res);
+    return;
+  }
+
   if (url === '/') {
     res.writeHead(302, { Location: '/glasses' });
     res.end();
@@ -276,6 +283,75 @@ async function handleTTS(req, res, query) {
     console.log('[elevenlabs] error:', err.message);
     res.writeHead(502, { 'Content-Type': 'text/plain' });
     res.end('tts failed');
+  }
+}
+
+// --- speech-to-text: the phone records audio and posts it here; we
+// transcribe with the OpenAI key already used for drawing interpretation.
+const STT_MODEL = process.env.OPENAI_STT_MODEL || 'whisper-1';
+function handleSTT(req, res) {
+  if (!process.env.OPENAI_API_KEY) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'no OPENAI_API_KEY on the server' }));
+    return;
+  }
+  const chunks = [];
+  let size = 0;
+  req.on('data', (c) => {
+    size += c.length;
+    if (size > 8 * 1024 * 1024) { req.destroy(); return; }
+    chunks.push(c);
+  });
+  req.on('end', async () => {
+    try {
+      const body = Buffer.concat(chunks);
+      if (!body.length) throw new Error('empty audio');
+      const ct = req.headers['content-type'] || 'audio/mp4';
+      const ext = ct.includes('webm') ? 'webm' : ct.includes('ogg') ? 'ogg' : ct.includes('wav') ? 'wav' : 'mp4';
+      const fd = new FormData();
+      fd.append('file', new Blob([body], { type: ct }), 'speech.' + ext);
+      fd.append('model', STT_MODEL);
+      const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+        body: fd,
+      });
+      if (!r.ok) {
+        const msg = await r.text().catch(() => '');
+        console.log(`[stt] HTTP ${r.status}: ${msg.slice(0, 120)}`);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'transcription failed' }));
+        return;
+      }
+      const j = await r.json();
+      console.log('[stt] heard:', JSON.stringify((j.text || '').slice(0, 80)));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ text: j.text || '' }));
+    } catch (err) {
+      console.log('[stt] error:', err.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'transcription failed' }));
+    }
+  });
+}
+
+// --- HTTPS (self-signed): iPhones only allow microphone access on https,
+// so the phone-mic path needs this; the http link keeps working (laptop mic).
+const HTTPS_PORT = process.env.HTTPS_PORT || 8443;
+function ensureCert() {
+  const dir = path.join(__dirname, '.cert');
+  const key = path.join(dir, 'key.pem');
+  const cert = path.join(dir, 'cert.pem');
+  try {
+    if (!fs.existsSync(key) || !fs.existsSync(cert)) {
+      fs.mkdirSync(dir, { recursive: true });
+      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', key, '-out', cert, '-days', '825', '-subj', '/CN=glasses-trackpad'],
+        { stdio: 'ignore' });
+    }
+    return { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
+  } catch {
+    return null; // no openssl - phone-mic unavailable, laptop mic still works
   }
 }
 
@@ -396,6 +472,13 @@ function lanIP() {
   return 'localhost';
 }
 
+const tlsCreds = ensureCert();
+if (tlsCreds) {
+  const httpsServer = https.createServer(tlsCreds, handleRequest);
+  new WebSocketServer({ server: httpsServer }).on('connection', onConnection);
+  httpsServer.listen(HTTPS_PORT, '0.0.0.0');
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   const ip = lanIP();
   console.log('');
@@ -404,7 +487,13 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Glasses assistant (laptop): http://localhost:${PORT}/glasses`);
   console.log(`  GitHub mock (laptop):      http://localhost:${PORT}/display`);
   console.log(`  Quiz only (laptop):        http://localhost:${PORT}/quiz`);
-  console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad`);
+  if (tlsCreds) {
+    console.log(`  Trackpad (phone, same wifi): https://${ip}:${HTTPS_PORT}/trackpad`);
+    console.log('    (accept the certificate warning once; https lets the PHONE mic record your voice)');
+    console.log(`    plain fallback (laptop mic): http://${ip}:${PORT}/trackpad`);
+  } else {
+    console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad  (no openssl - voice uses the laptop mic)`);
+  }
   console.log(`  Test bench (laptop only):  http://localhost:${PORT}/test`);
   console.log(ELEVEN_KEY
     ? '  Speech output: ElevenLabs'

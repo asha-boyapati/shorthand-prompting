@@ -1123,6 +1123,9 @@
       case 'squeeze': doSqueeze(); break;
       case 'assistant': onAssistant(msg); break;
       case 'talk': toggleListening(); break;
+      case 'speech': // the phone recorded + the server transcribed
+        if (typeof msg.text === 'string') sendSpeech(msg.text);
+        break;
       case 'mode':
         cursor.classList.toggle('pen', msg.mode === 'draw');
         showToast(msg.mode === 'draw' ? '✎ steer — ink & words go to the AI' : '✋ interact mode');
