@@ -340,13 +340,18 @@ function handleSTT(req, res) {
 const HTTPS_PORT = process.env.HTTPS_PORT || 8443;
 function ensureCert() {
   const dir = path.join(__dirname, '.cert');
-  const key = path.join(dir, 'key.pem');
-  const cert = path.join(dir, 'cert.pem');
+  const ip = lanIP();
+  // cert is bound to the current LAN IP (iOS wants a subjectAltName);
+  // a new IP (different wifi) just generates a fresh one
+  const key = path.join(dir, `key-${ip}.pem`);
+  const cert = path.join(dir, `cert-${ip}.pem`);
   try {
     if (!fs.existsSync(key) || !fs.existsSync(cert)) {
       fs.mkdirSync(dir, { recursive: true });
       execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
-        '-keyout', key, '-out', cert, '-days', '825', '-subj', '/CN=glasses-trackpad'],
+        '-keyout', key, '-out', cert, '-days', '825',
+        '-subj', `/CN=${ip}`,
+        '-addext', `subjectAltName=IP:${ip},DNS:localhost`],
         { stdio: 'ignore' });
     }
     return { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
