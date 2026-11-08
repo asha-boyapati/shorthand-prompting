@@ -326,7 +326,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
-<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">g4</span>
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">g5</span>
   <button id="audioBtn" title="glasses audio"
     style="background:none;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 10px;">&#128266; on</button>
 </div>
@@ -371,6 +371,7 @@
     { id: 'ideate',    text: 'Hackathon ideas', ready: true },
     { id: 'translate', text: 'Translate to Spanish', ready: true },
     { id: 'nav',       text: 'Get directions', ready: true },
+    { id: 'custom',    text: 'Anything else\u2026', ready: true },
   ];
 
   // ====================== app state ======================
@@ -521,6 +522,18 @@
     if (s) speak(s.text + (s.dist ? ', ' + s.dist : ''));
   }
 
+  // --- custom task: built from scratch BY THE MODEL via state.custom.
+  // 'steps' = one instruction per glance (flick through); 'list' = a
+  // tappable checklist. The model owns and rewrites this freely. ---
+  const cu = {};
+  function customReset() {
+    Object.assign(cu, { title: '', chip: '', mode: '', items: [], steps: [], step: 0, note: '' });
+  }
+  function customSpeakStep() {
+    const st = cu.steps[cu.step];
+    if (st) speak(st.text);
+  }
+
   // --- piano state ---
   const WHITE_KEYS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
   const BLACK_KEYS = [
@@ -559,7 +572,7 @@
     } catch {}
   }
 
-  quizReset(); cookReset(); ideateReset(); translateReset(); navReset(); pianoReset();
+  quizReset(); cookReset(); ideateReset(); translateReset(); navReset(); customReset(); pianoReset();
 
   // ====================== rendering ======================
   function homeBtn() {
@@ -574,6 +587,7 @@
     else if (screen === 'ideate') renderIdeate();
     else if (screen === 'translate') renderTranslate();
     else if (screen === 'nav') renderNav();
+    else if (screen === 'custom') renderCustom();
     else if (screen === 'piano') renderPiano();
     else renderSoon();
     updateHover();
@@ -796,6 +810,41 @@
       '</div>';
   }
 
+  function renderCustom() {
+    if (!cu.mode) {
+      card.innerHTML =
+        '<div class="head"><span data-content="custom-title">NEW TASK · anything</span>' +
+          '<span class="chip task">\u270E</span></div>' +
+        '<div class="center">' +
+          '<div class="bigq" style="font-size:26px;" data-content="custom-invite">what do you want to do?</div>' +
+          '<div class="hint">double-tap = say it &middot; or write it with the pen</div>' +
+        '</div>';
+      return;
+    }
+    if (cu.mode === 'steps') {
+      const st = cu.steps[cu.step] || { text: '\u2026' };
+      card.innerHTML =
+        '<div class="head"><span data-content="custom-title">' + esc((cu.title || 'TASK').toUpperCase()) +
+          ' · ' + (cu.step + 1) + '/' + cu.steps.length + '</span>' +
+          (cu.chip ? '<span class="chip task" data-content="custom-chip">' + esc(cu.chip) + '</span>' : '') + '</div>' +
+        '<div class="center">' +
+          '<div class="steptext" data-content="custom-step">' + esc(st.text) + '</div>' +
+          (cu.note ? '<div class="hint" data-content="custom-note">' + esc(cu.note) + '</div>' : '') +
+          (cu.step === 0 ? '<div class="hint coach">\u2192 next · \u2190 back</div>' : '') +
+        '</div>';
+      return;
+    }
+    const rows = cu.items.map((it, i) =>
+      '<div class="ing' + (it.done ? ' checked' : '') + '" data-action="' + esc(it.text) + '"' +
+      ' data-cmd="custom:item:' + i + '" data-multi="1"><span class="box">' +
+      (it.done ? '\u2713' : '') + '</span>' + esc(it.text) + '</div>').join('');
+    card.innerHTML =
+      '<div class="head"><span data-content="custom-title">' + esc((cu.title || 'TASK').toUpperCase()) + '</span>' +
+        (cu.chip ? '<span class="chip task" data-content="custom-chip">' + esc(cu.chip) + '</span>' : '') + '</div>' +
+      '<div class="scrollable" id="scrollable">' + rows + '</div>' +
+      (cu.note ? '<div class="hint" data-content="custom-note">' + esc(cu.note) + '</div>' : '');
+  }
+
   function renderPiano() {
     if (pn.finished) {
       card.innerHTML =
@@ -862,6 +911,7 @@
         if (p.id === 'ideate') ideateReset();
         if (p.id === 'translate') translateReset();
         if (p.id === 'nav') navReset();
+        if (p.id === 'custom') customReset();
         if (p.id === 'piano') pianoReset();
       }
       render();
@@ -959,6 +1009,20 @@
         else { nv.step++; navSpeakStep(); }
       } else if (verb === 'back') {
         if (nv.step > 0) { nv.step--; navSpeakStep(); }
+      } else return false;
+      render();
+      return true;
+    }
+
+    if (ns === 'custom') {
+      if (verb === 'item') {
+        const it = cu.items[+arg];
+        if (!it) return false;
+        it.done = !it.done;
+      } else if (verb === 'next' && cu.mode === 'steps') {
+        if (cu.step < cu.steps.length - 1) { cu.step++; customSpeakStep(); }
+      } else if (verb === 'back' && cu.mode === 'steps') {
+        if (cu.step > 0) { cu.step--; customSpeakStep(); }
       } else return false;
       render();
       return true;
@@ -1079,6 +1143,7 @@
     if (screen === 'ideate' && id8.phase === 'cards' && !id8.finished) return dir === 'right' ? ['ideate:keep', 'Shortlisted ⭐'] : ['ideate:drop', 'Discarded'];
     if (screen === 'translate') return dir === 'right' ? ['tr:next', 'Next scene'] : ['tr:prev', 'Previous scene'];
     if (screen === 'nav' && nv.phase === 'go') return dir === 'right' ? ['nav:next', 'Next turn'] : ['nav:back', 'Previous turn'];
+    if (screen === 'custom' && cu.mode === 'steps') return dir === 'right' ? ['custom:next', 'Next'] : ['custom:back', 'Back'];
     if (screen === 'piano' && !pn.finished) return dir === 'right' ? ['piano:next', 'Next lesson'] : ['piano:back', 'Previous lesson'];
     return null;
   }
@@ -1455,6 +1520,9 @@
     if (screen === 'nav') {
       return { nav: { phase: nv.phase, dest: nv.dest, eta: nv.eta, step: nv.step, steps: nv.steps } };
     }
+    if (screen === 'custom') {
+      return { custom: { title: cu.title, chip: cu.chip, mode: cu.mode, items: cu.items, steps: cu.steps, step: cu.step, note: cu.note } };
+    }
     return {};
   }
 
@@ -1551,6 +1619,28 @@
         if (nv.phase === 'go') navSpeakStep();
         touched = true;
       }
+      if (s.custom && typeof s.custom === 'object') {
+        const c = s.custom;
+        if (typeof c.title === 'string') cu.title = c.title.slice(0, 26);
+        if (typeof c.chip === 'string') cu.chip = c.chip.slice(0, 18);
+        if (typeof c.note === 'string') cu.note = c.note.slice(0, 90);
+        if (Array.isArray(c.steps) && c.steps.length && c.steps.every((x) => x && typeof x.text === 'string')) {
+          cu.steps = c.steps.slice(0, 15).map((x) => ({ text: String(x.text).slice(0, 90) }));
+          cu.mode = 'steps';
+          cu.step = 0;
+        }
+        if (Array.isArray(c.items) && c.items.length && c.items.every((x) => x && typeof x.text === 'string')) {
+          cu.items = c.items.slice(0, 12).map((x) => ({ text: String(x.text).slice(0, 60), done: !!x.done }));
+          cu.mode = 'list';
+        }
+        if (c.mode === 'steps' || c.mode === 'list') cu.mode = c.mode;
+        if (Number.isInteger(c.step)) cu.step = Math.max(0, Math.min(Math.max(0, cu.steps.length - 1), c.step));
+        if (cu.mode) {
+          if (screen !== 'custom') screen = 'custom';
+          if (cu.mode === 'steps') customSpeakStep();
+          touched = true;
+        }
+      }
       if (touched) render();
       return touched;
     } catch (e) {
@@ -1573,6 +1663,9 @@
       { cmd: 'nav:dest:1', desc: 'route to ' + DESTS[1].name },
       { cmd: 'nav:dest:2', desc: 'route to ' + DESTS[2].name },
       { cmd: 'nav:restart', desc: 'pick a different destination' },
+    ] : screen === 'custom' && cu.mode === 'steps' ? [
+      { cmd: 'custom:next', desc: 'advance to the next step' },
+      { cmd: 'custom:back', desc: 'go back one step' },
     ] : []);
   }
 
