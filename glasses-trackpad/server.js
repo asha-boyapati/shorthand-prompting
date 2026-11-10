@@ -18,7 +18,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const PROMPT_VERSION = 24; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 25; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -36,7 +36,9 @@ The user wears glasses with a small HUD and draws strokes on a wrist trackpad. Y
 - elements: actionable UI elements (label, machine cmd, and flags: circled / crossed / underlined / touched by the drawing)
 - contents: non-interactive display text regions (id, current text, same flags)
   (touched = the stroke made a small mark on it without clearly circling or striking it - treat it like a single-item circle: the user is pointing at it)
-A screenshot of the HUD with the glowing drawing on it may also be attached - use it to see the exact shape and placement.
+A screenshot of the HUD with the glowing drawing on it may also be attached - use it to see the exact shape and placement. When a SECOND image is attached, it is a zoomed CLOSE-UP of the ink region: the ground truth for what exactly sits inside/under the mark and for reading handwriting - trust it over the small full shot.
+
+STAY ON SUBJECT: "marked" lists the labels/ids the ink actually touched - the user's subject is there (or, when marked is empty, at drawing.nearest). Everything you say, do or edit must be about those items. NEVER bring in unmarked items, other list entries, or the screen's prominent buttons; if the subject is unclear, ask about the marked items, not about the screen.
 
 ANCHOR ON THE MARK: respond to what the drawing actually marks - the circled/crossed/underlined/touched flags, and the stroke's position in the screenshot. When no flags are set, drawing.nearest names the closest labeled thing to the stroke - that is almost certainly the subject. NEVER assume the user means the screen's main buttons or options just because they are prominent; the mark's location decides the subject.
 
@@ -123,9 +125,15 @@ function parseInterpretation(raw) {
 // Split a payload into {text parts, image} - the screenshot travels as a
 // proper image attachment, not inside the JSON.
 function splitPayload(payload) {
-  const { image, ...rest } = payload || {};
-  const m = typeof image === 'string' ? image.match(/^data:(image\/\w+);base64,(.+)$/) : null;
-  return { json: JSON.stringify(rest), mediaType: m ? m[1] : null, b64: m ? m[2] : null, dataUrl: m ? image : null };
+  const { image, imageCrop, ...rest } = payload || {};
+  const parse = (d) => (typeof d === 'string' ? d.match(/^data:(image\/\w+);base64,(.+)$/) : null);
+  const m = parse(image);
+  const c = parse(imageCrop);
+  return {
+    json: JSON.stringify(rest),
+    mediaType: m ? m[1] : null, b64: m ? m[2] : null, dataUrl: m ? image : null,
+    cropMediaType: c ? c[1] : null, cropB64: c ? c[2] : null, cropDataUrl: c ? imageCrop : null,
+  };
 }
 
 async function interpretWithClaude(payload) {
@@ -133,6 +141,7 @@ async function interpretWithClaude(payload) {
   const content = p.b64
     ? [
         { type: 'image', source: { type: 'base64', media_type: p.mediaType, data: p.b64 } },
+        ...(p.cropB64 ? [{ type: 'image', source: { type: 'base64', media_type: p.cropMediaType, data: p.cropB64 } }] : []),
         { type: 'text', text: p.json },
       ]
     : p.json;
@@ -163,6 +172,7 @@ async function interpretWithOpenAI(payload) {
     ? [
         { type: 'text', text: p.json },
         { type: 'image_url', image_url: { url: p.dataUrl } },
+        ...(p.cropDataUrl ? [{ type: 'image_url', image_url: { url: p.cropDataUrl } }] : []),
       ]
     : p.json;
   const res = await fetch('https://api.openai.com/v1/chat/completions', {

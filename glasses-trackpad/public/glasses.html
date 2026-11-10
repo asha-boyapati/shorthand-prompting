@@ -1731,7 +1731,7 @@
       })),
       inkOnScreen: strokes.length > 0,
     };
-    captureHud().then((image) => {
+    captureHud(null).then(({ image }) => {
       if (image) payload.image = image;
       if (strokes.length) clearInk(true);
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1860,10 +1860,14 @@
         },
         elements: elements.map(({ label, cmd, circled, crossed, underlined, touched }) => ({ label, cmd, circled, crossed, underlined, touched })),
         contents,
+        // the user's subject, pre-computed: everything the ink touched
+        marked: elements.filter((e) => e.circled || e.crossed || e.underlined || e.touched).map((e) => e.label)
+          .concat(contents.filter((c) => c.circled || c.crossed || c.underlined || c.touched).map((c) => c.id)),
       };
       // screenshot the HUD (strokes included) so the model can see the drawing
-      captureHud().then((image) => {
+      captureHud({ x: minX, y: minY, w: maxX - minX, h: maxY - minY }).then(({ image, crop }) => {
         if (image) payload.image = image;
+        if (crop) payload.imageCrop = crop;
         clearInk(true);
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'interpret', payload }));
@@ -1877,17 +1881,38 @@
     }
   }
 
-  async function captureHud() {
+  async function captureHud(bbox) {
     try {
-      if (!window.html2canvas) return null;
+      if (!window.html2canvas) return { image: null, crop: null };
       const canvas = await Promise.race([
         // scale 2 so small handwriting stays legible to the model
         html2canvas(hud, { backgroundColor: '#000000', logging: false, scale: 2 }),
         new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
       ]);
-      return canvas ? canvas.toDataURL('image/jpeg', 0.75) : null;
+      if (!canvas) return { image: null, crop: null };
+      const image = canvas.toDataURL('image/jpeg', 0.75);
+      // a zoomed close-up of the ink region: ground truth for what exactly
+      // was circled or written, where the full shot is too small to read
+      let crop = null;
+      if (bbox && bbox.w >= 4 && bbox.h >= 4) {
+        try {
+          const pad = 70, sc = canvas.width / W;
+          const x = Math.max(0, (bbox.x - pad) * sc);
+          const y = Math.max(0, (bbox.y - pad) * sc);
+          const w = Math.min(canvas.width - x, (bbox.w + pad * 2) * sc);
+          const h = Math.min(canvas.height - y, (bbox.h + pad * 2) * sc);
+          if (w > 20 && h > 20) {
+            const c = document.createElement('canvas');
+            c.width = Math.round(w);
+            c.height = Math.round(h);
+            c.getContext('2d').drawImage(canvas, x, y, w, h, 0, 0, c.width, c.height);
+            crop = c.toDataURL('image/jpeg', 0.8);
+          }
+        } catch {}
+      }
+      return { image, crop };
     } catch {
-      return null;
+      return { image: null, crop: null };
     }
   }
 
