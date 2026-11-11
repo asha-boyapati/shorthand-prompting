@@ -165,7 +165,10 @@ async function interpretWithClaude(payload) {
 }
 
 // Alternative backend: OpenAI (set OPENAI_API_KEY; override model with OPENAI_MODEL)
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+// Best available first: if the key doesn't have a model, step down the chain.
+const OPENAI_MODELS = [...new Set([process.env.OPENAI_MODEL, 'gpt-5.4', 'gpt-5', 'gpt-4o-mini'].filter(Boolean))];
+let openaiIdx = 0;
+const OPENAI_MODEL = OPENAI_MODELS[0]; // for the startup log
 async function interpretWithOpenAI(payload) {
   const p = splitPayload(payload);
   const userContent = p.dataUrl
@@ -182,7 +185,7 @@ async function interpretWithOpenAI(payload) {
       authorization: 'Bearer ' + process.env.OPENAI_API_KEY,
     },
     body: JSON.stringify({
-      model: OPENAI_MODEL,
+      model: OPENAI_MODELS[openaiIdx],
       max_completion_tokens: 2000,
       response_format: { type: 'json_object' },
       messages: [
@@ -193,6 +196,13 @@ async function interpretWithOpenAI(payload) {
   });
   if (!res.ok) {
     const body = (await res.text()).slice(0, 200);
+    // unknown model on this key -> step down the chain and retry once per step
+    if ((res.status === 400 || res.status === 404) && /model/i.test(body) &&
+        openaiIdx < OPENAI_MODELS.length - 1) {
+      console.log(`[openai] model "${OPENAI_MODELS[openaiIdx]}" unavailable - switching to "${OPENAI_MODELS[openaiIdx + 1]}"`);
+      openaiIdx++;
+      return interpretWithOpenAI(payload);
+    }
     const err = new Error(`OpenAI HTTP ${res.status}: ${body}`);
     err.fatalAuth = res.status === 401 || res.status === 403;
     throw err;
