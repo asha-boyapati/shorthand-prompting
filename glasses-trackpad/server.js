@@ -17,7 +17,7 @@ const { WebSocketServer, WebSocket } = require('ws');
 const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
-const CLAUDE_MODEL = 'claude-opus-5-5';
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
 const PROMPT_VERSION = 25; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
