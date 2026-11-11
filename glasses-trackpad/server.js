@@ -449,6 +449,17 @@ function onConnection(ws) {
       const tag = USE_OPENAI ? 'openai' : 'claude';
       const hasImg = !!(msg.payload && msg.payload.image);
       if (!hasImg) console.log(`[${tag}] note: no screenshot attached (html2canvas missing or capture failed)`);
+      // show what the geometry decided the user marked - the first place to
+      // look when a circle "wasn't understood"
+      {
+        const pl = msg.payload || {};
+        const bits = [`screen=${pl.screen}`];
+        if (Array.isArray(pl.marked) && pl.marked.length) bits.push(`marked=[${pl.marked.join(' | ')}]`);
+        else if (pl.drawing && pl.drawing.nearest) bits.push(`marked=NONE nearest="${pl.drawing.nearest.label}"`);
+        if (pl.speech) bits.push(`speech="${pl.speech}"`);
+        if (pl.imageCrop) bits.push('crop=yes');
+        console.log(`[interpret] ${bits.join(' ')}`);
+      }
       interpretGesture(msg.payload || {})
         .then((r) => {
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
