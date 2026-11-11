@@ -343,12 +343,13 @@
       const type = recorder.mimeType || mime || 'audio/mp4';
       const blob = new Blob(recChunks, { type });
       recorder = null;
-      if (blob.size < 1200) { showBanner('\u{1F3A4} heard nothing'); return; }
+      if (blob.size < 1200) { send({ type: 'listening', on: false }); showBanner('\u{1F3A4} heard nothing'); return; }
       showBanner('\u{1F3A4} transcribing\u2026');
       try {
         const r = await fetch('/stt', { method: 'POST', headers: { 'Content-Type': type }, body: blob });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.text || !j.text.trim()) {
+          send({ type: 'listening', on: false });
           showBanner(r.status === 503
             ? 'voice needs the OpenAI key on the server'
             : '\u{1F3A4} could not transcribe \u2014 try again');
@@ -358,10 +359,12 @@
         send({ type: 'speech', text: j.text.trim().slice(0, 300) });
         vibrate([30, 40, 30]);
       } catch {
+        send({ type: 'listening', on: false });
         showBanner('\u{1F3A4} upload failed \u2014 try again');
       }
     };
     recorder.start();
+    send({ type: 'listening', on: true });
     showBanner('\u{1F3A4} recording \u2014 double-tap when done');
     recTimer = setTimeout(() => stopRecording(), 15000);
   }

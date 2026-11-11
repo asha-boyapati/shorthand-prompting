@@ -1193,6 +1193,9 @@
       case 'speech': // the phone recorded + the server transcribed
         if (typeof msg.text === 'string') sendSpeech(msg.text);
         break;
+      case 'listening': // the phone mic started/stopped recording
+        setSpeechHold(msg.on);
+        break;
       case 'mode':
         cursor.classList.toggle('pen', msg.mode === 'draw');
         showToast(msg.mode === 'draw' ? '✎ steer — ink & words go to the AI' : '✋ interact mode');
@@ -1425,7 +1428,7 @@
       stroke = [];
       drawStrokes();
       clearTimeout(strokeIdleTimer);
-      strokeIdleTimer = setTimeout(interpretStrokes, STROKE_IDLE_MS);
+      strokeIdleTimer = setTimeout(() => { if (!speechHold) interpretStrokes(); }, STROKE_IDLE_MS);
     }
   }
 
@@ -1684,7 +1687,27 @@
   }
 
   // --- speech input: double-tap on the pad -> the glasses listen ---------
+  // While the user is talking, ink on screen is HELD instead of being
+  // interpreted alone, so words + drawing go to the AI as one utterance.
   let rec = null, listening = false;
+  let speechHold = false, pendingSpeechText = '', speechHoldTimer = null;
+  function setSpeechHold(on) {
+    speechHold = !!on;
+    clearTimeout(speechHoldTimer);
+    if (speechHold) {
+      if (strokes.length) showToast('\u{1F3A4} + \u270E \u2014 ink waits for your words');
+      // never hold forever
+      speechHoldTimer = setTimeout(() => {
+        speechHold = false;
+        if (strokes.length) interpretStrokes();
+      }, 30000);
+    } else if (strokes.length) {
+      // talking ended with no transcript: give the ink its normal fate
+      speechHoldTimer = setTimeout(() => {
+        if (!speechHold && strokes.length) interpretStrokes();
+      }, 1200);
+    }
+  }
   function toggleListening() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
@@ -1705,13 +1728,15 @@
       };
       rec.onerror = (e) => {
         listening = false;
+        setSpeechHold(false);
         hideBubble();
         showToast('\u{1F3A4} ' + (e.error === 'not-allowed'
           ? 'mic blocked \u2014 allow it in the browser' : 'speech error: ' + e.error));
         sendAck('Mic problem', false);
       };
-      rec.onend = () => { if (listening) { listening = false; hideBubble(); } };
+      rec.onend = () => { if (listening) { listening = false; setSpeechHold(false); hideBubble(); } };
       listening = true;
+      setSpeechHold(true);
       showBubble('\u{1F3A4} listening\u2026', true);
       sendAck('Listening', true);
       rec.start();
@@ -1725,8 +1750,20 @@
   // Spoken words go through the same interpretation pipeline as ink. If ink
   // is on screen, the screenshot carries it - words say WHAT, marks say WHERE.
   function sendSpeech(text) {
-    if (!text || !text.trim()) { hideBubble(); showToast('\u{1F3A4} heard nothing'); return; }
+    clearTimeout(speechHoldTimer);
+    speechHold = false;
+    if (!text || !text.trim()) {
+      hideBubble(); showToast('\u{1F3A4} heard nothing');
+      if (strokes.length) interpretStrokes();
+      return;
+    }
     if (!(ws && ws.readyState === WebSocket.OPEN)) { hideBubble(); showToast('no server connection'); return; }
+    if (strokes.length) {
+      // words + ink = ONE utterance through the full drawing pipeline
+      pendingSpeechText = text.trim().slice(0, 300);
+      interpretStrokes();
+      return;
+    }
     pending = { closed: false, hits: [], speech: true };
     clearTimeout(pendingTimer);
     pendingTimer = setTimeout(() => localInterpret(), 12000);
@@ -1757,12 +1794,18 @@
   }
 
   function interpretStrokes() {
+    const spokenWith = pendingSpeechText;
+    pendingSpeechText = '';
     const an = strokes.filter((s) => s.length >= 8).map(analyzeStroke);
-    if (!an.length) { clearInk(true); return; }
+    if (!an.length) {
+      clearInk(true);
+      if (spokenWith) sendSpeech(spokenWith); // words alone after all
+      return;
+    }
 
     // a lone triangle is the voice-control glyph: pause / resume / repeat.
     // Handled locally - speech control has to be instant, no AI round-trip.
-    if (an.length === 1 && an[0].shape === 'triangle') {
+    if (!spokenWith && an.length === 1 && an[0].shape === 'triangle') {
       clearInk(false);
       speechControl();
       return;
@@ -1770,7 +1813,7 @@
 
     // while a proposal is up, a short quick horizontal stroke in draw mode
     // answers it (right = yes, left = no) instead of being interpreted
-    if (proposal && an.length === 1 && !an[0].closed &&
+    if (!spokenWith && proposal && an.length === 1 && !an[0].closed &&
         an[0].shape === 'line-horizontal' && an[0].L < 170) {
       const s = an[0].pts;
       clearInk(false);
@@ -1847,12 +1890,15 @@
     pending = { closed: anyClosed, hits: circledHits.length ? circledHits : (anyClosed ? [] : crossedHits) };
 
     if (ws && ws.readyState === WebSocket.OPEN) {
-      showBubble('interpreting your drawing…', true);
+      showBubble(spokenWith
+        ? '🎤 “' + spokenWith.slice(0, 40) + '” + ✎ …'
+        : 'interpreting your drawing…', true);
       clearTimeout(pendingTimer);
       pendingTimer = setTimeout(() => localInterpret(), 12000);
       const payload = {
         screen,
         mode: 'steer',
+        speech: spokenWith || undefined,
         state: taskState(),
         extraCommands: extraCmds(),
         drawing: {
