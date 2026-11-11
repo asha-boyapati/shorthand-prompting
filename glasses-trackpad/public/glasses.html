@@ -1499,7 +1499,21 @@
       maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
       sumY += p.y;
     }
-    return { pts, L, closed, shape, minX, minY, maxX, maxY, avgY: sumY / pts.length };
+    // EdgeWrite-style corner sequence: which corners of the stroke's own
+    // bounding box the pen visits, in order. Letters have characteristic
+    // sequences that survive sloppy drawing far better than the raw shape.
+    let path = '';
+    {
+      const w = Math.max(maxX - minX, 12), h = Math.max(maxY - minY, 12);
+      const seq = [];
+      for (const p of pts) {
+        const nx = (p.x - minX) / w, ny = (p.y - minY) / h;
+        const label = (ny < 0.5 ? 'T' : 'B') + (nx < 0.5 ? 'L' : 'R');
+        if (seq[seq.length - 1] !== label) seq.push(label);
+      }
+      path = seq.slice(0, 14).join('-');
+    }
+    return { pts, L, closed, shape, path, minX, minY, maxX, maxY, avgY: sumY / pts.length };
   }
 
 
@@ -1851,6 +1865,7 @@
           strokes: an.map((a) => ({
             shape: a.shape,
             closed: a.closed,
+            path: a.path,
             points: a.pts.length,
             length: Math.round(a.L),
             bbox: { x: Math.round(a.minX), y: Math.round(a.minY), w: Math.round(a.maxX - a.minX), h: Math.round(a.maxY - a.minY) },
