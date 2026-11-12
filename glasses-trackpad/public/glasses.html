@@ -1171,6 +1171,7 @@
     switch (msg.type) {
       case 'status': {
         serverTTS = !!msg.tts;
+        serverLowCost = !!msg.lowCost;
         const n = msg.trackpads | 0;
         setStatus(n > 0, n > 0 ? 'trackpad connected (' + n + ')' : 'waiting for trackpad…');
         cursor.classList.toggle('hidden', n === 0);
@@ -1947,7 +1948,8 @@
       if (!window.html2canvas) return { image: null, crop: null };
       const canvas = await Promise.race([
         // scale 2 so small handwriting stays legible to the model
-        html2canvas(hud, { backgroundColor: '#000000', logging: false, scale: 2 }),
+        // (LOW_COST: scale 1 - a quarter of the vision tokens)
+        html2canvas(hud, { backgroundColor: '#000000', logging: false, scale: serverLowCost ? 1 : 2 }),
         new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
       ]);
       if (!canvas) return { image: null, crop: null };
@@ -1955,7 +1957,7 @@
       // a zoomed close-up of the ink region: ground truth for what exactly
       // was circled or written, where the full shot is too small to read
       let crop = null;
-      if (bbox && bbox.w >= 4 && bbox.h >= 4) {
+      if (bbox && bbox.w >= 4 && bbox.h >= 4 && !serverLowCost) {
         try {
           const pad = 70, sc = canvas.width / W;
           const x = Math.max(0, (bbox.x - pad) * sc);
@@ -2259,6 +2261,7 @@
   try { audioOn = localStorage.getItem('ga-audio') !== 'off'; } catch {}
   let lastSpoken = '';
   let serverTTS = false;   // server broadcasts tts:true when ELEVENLABS_API_KEY is set
+  let serverLowCost = false; // LOW_COST=1 on the server: smaller screenshots, no crop
   let ttsAudio = null;     // the <audio> playing the current ElevenLabs line
   function speak(text) {
     if (!audioOn) return;

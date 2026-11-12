@@ -166,7 +166,13 @@ async function interpretWithClaude(payload) {
 
 // Alternative backend: OpenAI (set OPENAI_API_KEY; override model with OPENAI_MODEL)
 // Best available first: if the key doesn't have a model, step down the chain.
-const OPENAI_MODELS = [...new Set([process.env.OPENAI_MODEL, 'gpt-5.4', 'gpt-5', 'gpt-4o-mini'].filter(Boolean))];
+// LOW_COST=1: cheapest capable models + lighter screenshots (set by the glasses)
+const LOW_COST = !!process.env.LOW_COST;
+const OPENAI_MODELS = [...new Set(
+  (LOW_COST
+    ? [process.env.OPENAI_MODEL, 'gpt-5-mini', 'gpt-4o-mini']
+    : [process.env.OPENAI_MODEL, 'gpt-5.4', 'gpt-5', 'gpt-4o-mini']
+  ).filter(Boolean))];
 let openaiIdx = 0;
 const OPENAI_MODEL = OPENAI_MODELS[0]; // for the startup log
 async function interpretWithOpenAI(payload) {
@@ -427,6 +433,7 @@ function broadcastStatus() {
     displays: countRole('display'),
     trackpads: countRole('trackpad'),
     tts: !!ELEVEN_KEY,
+    lowCost: LOW_COST,
   };
   sendTo('display', status);
   sendTo('trackpad', status);
@@ -551,7 +558,7 @@ server.listen(PORT, '0.0.0.0', () => {
     ? '  Speech output: ElevenLabs'
     : '  Speech output: browser voice (set ELEVENLABS_API_KEY for a natural one)');
   if (USE_OPENAI) {
-    console.log(`  Drawing interpretation: OpenAI (${OPENAI_MODEL}) - prompt v${PROMPT_VERSION}`);
+    console.log(`  Drawing interpretation: OpenAI (${OPENAI_MODEL}) - prompt v${PROMPT_VERSION}${LOW_COST ? ' - LOW COST mode' : ''}`);
   } else if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
     console.log(`  Drawing interpretation: Claude (${CLAUDE_MODEL})`);
   } else {
