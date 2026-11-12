@@ -313,7 +313,9 @@ async function handleTTS(req, res, query) {
 
 // --- speech-to-text: the phone records audio and posts it here; we
 // transcribe with the OpenAI key already used for drawing interpretation.
-const STT_MODEL = process.env.OPENAI_STT_MODEL || 'whisper-1';
+// Transcription models, best first: step down if the key lacks one.
+const STT_MODELS = [...new Set([process.env.OPENAI_STT_MODEL, 'gpt-4o-mini-transcribe', 'whisper-1'].filter(Boolean))];
+let sttIdx = 0;
 function handleSTT(req, res) {
   if (!process.env.OPENAI_API_KEY) {
     res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -333,19 +335,28 @@ function handleSTT(req, res) {
       if (!body.length) throw new Error('empty audio');
       const ct = req.headers['content-type'] || 'audio/mp4';
       const ext = ct.includes('webm') ? 'webm' : ct.includes('ogg') ? 'ogg' : ct.includes('wav') ? 'wav' : 'mp4';
-      const fd = new FormData();
-      fd.append('file', new Blob([body], { type: ct }), 'speech.' + ext);
-      fd.append('model', STT_MODEL);
-      const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-        body: fd,
-      });
-      if (!r.ok) {
-        const msg = await r.text().catch(() => '');
-        console.log(`[stt] HTTP ${r.status}: ${msg.slice(0, 120)}`);
+      let r, msg = '';
+      for (;;) {
+        const fd = new FormData();
+        fd.append('file', new Blob([body], { type: ct }), 'speech.' + ext);
+        fd.append('model', STT_MODELS[sttIdx]);
+        r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+          body: fd,
+        });
+        if (r.ok) break;
+        msg = await r.text().catch(() => '');
+        console.log(`[stt] ${STT_MODELS[sttIdx]} HTTP ${r.status}: ${msg.slice(0, 200)}`);
+        if ((r.status === 400 || r.status === 404) && /model/i.test(msg) && sttIdx < STT_MODELS.length - 1) {
+          console.log(`[stt] switching to "${STT_MODELS[sttIdx + 1]}"`);
+          sttIdx++;
+          continue;
+        }
+        let reason = 'transcription failed';
+        try { reason = (JSON.parse(msg).error || {}).message || reason; } catch {}
         res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'transcription failed' }));
+        res.end(JSON.stringify({ error: String(reason).slice(0, 90) }));
         return;
       }
       const j = await r.json();

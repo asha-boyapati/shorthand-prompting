@@ -352,7 +352,7 @@
           send({ type: 'listening', on: false });
           showBanner(r.status === 503
             ? 'voice needs the OpenAI key on the server'
-            : '\u{1F3A4} could not transcribe \u2014 try again');
+            : '\u{1F3A4} ' + (j.error ? String(j.error).slice(0, 60) : 'could not transcribe \u2014 try again'));
           return;
         }
         showBanner('\u{1F3A4} \u201C' + j.text.trim().slice(0, 40) + '\u201D');
