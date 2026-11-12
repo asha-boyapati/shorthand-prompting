@@ -1,3 +1,4 @@
 node_modules/
 .cert/
 server.log
+.env

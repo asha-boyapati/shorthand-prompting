@@ -10,6 +10,17 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 const { WebSocketServer, WebSocket } = require('ws');
 
+// --- local .env file (git-ignored) so keys don't have to be typed each run.
+// Create glasses-trackpad/.env with lines like ANTHROPIC_API_KEY=sk-ant-...
+// Real environment variables still win over the file.
+try {
+  for (const line of fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+  console.log('[env] loaded .env');
+} catch {}
+
 // --- optional Claude-powered gesture interpretation -----------------------
 // With an API key (env ANTHROPIC_API_KEY), freeform drawings are sent to
 // Claude along with screen context, and Claude decides what the user meant.
