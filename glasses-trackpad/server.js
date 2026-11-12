@@ -255,7 +255,11 @@ async function interpretWithOpenAI(payload) {
   return parseInterpretation(data.choices?.[0]?.message?.content || '');
 }
 
-const USE_OPENAI = !!process.env.OPENAI_API_KEY;
+// Which model family interprets drawings/speech. With both keys present,
+// AI_BACKEND=claude|openai picks; otherwise whichever key exists wins.
+const USE_OPENAI = process.env.AI_BACKEND
+  ? process.env.AI_BACKEND === 'openai'
+  : !!process.env.OPENAI_API_KEY;
 function interpretGesture(payload) {
   return USE_OPENAI ? interpretWithOpenAI(payload) : interpretWithClaude(payload);
 }
