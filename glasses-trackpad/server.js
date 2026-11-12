@@ -21,6 +21,31 @@ try {
   console.log('[env] loaded .env');
 } catch {}
 
+// --- hard spending budget --------------------------------------------------
+// Every AI call's token usage is priced and accumulated in .usage.json.
+// Once BUDGET_USD is reached the server refuses further AI calls for good.
+const BUDGET_USD = Number(process.env.BUDGET_USD || 100);
+const USAGE_FILE = path.join(__dirname, '.usage.json');
+let spentUSD = 0;
+try { spentUSD = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')).spentUSD || 0; } catch {}
+// $ per 1M tokens [input, output]; unknown models get a deliberately high
+// estimate so the guard errs on the safe side
+const PRICES = {
+  'claude-haiku-5-5': [0.10, 0.50], 'claude-sonnet-5-5': [2, 10], 'claude-opus-5-5': [4, 20],
+  'gpt-4o-mini': [0.15, 0.60], 'gpt-5-mini': [0.25, 2], 'gpt-5.4': [10, 40], 'gpt-5': [10, 40],
+};
+function recordSpend(model, inTok, outTok) {
+  const [pi, po] = PRICES[model] || [5, 25];
+  const cost = (inTok * pi + outTok * po) / 1e6;
+  spentUSD += cost;
+  try { fs.writeFileSync(USAGE_FILE, JSON.stringify({ spentUSD })); } catch {}
+  console.log(`[budget] $${cost.toFixed(4)} this call · $${spentUSD.toFixed(2)} of $${BUDGET_USD} total`);
+  if (spentUSD >= BUDGET_USD) console.log('[budget] LIMIT REACHED - AI calls are now disabled');
+}
+function budgetLeft() {
+  return spentUSD < BUDGET_USD;
+}
+
 // --- optional Claude-powered gesture interpretation -----------------------
 // With an API key (env ANTHROPIC_API_KEY), freeform drawings are sent to
 // Claude along with screen context, and Claude decides what the user meant.
@@ -168,6 +193,7 @@ async function interpretWithClaude(payload) {
   if (response.stop_reason === 'refusal') {
     throw new Error('model declined the request');
   }
+  if (response.usage) recordSpend(CLAUDE_MODEL, response.usage.input_tokens | 0, response.usage.output_tokens | 0);
   let text = '';
   for (const block of response.content) {
     if (block.type === 'text') text += block.text;
@@ -225,6 +251,7 @@ async function interpretWithOpenAI(payload) {
     throw err;
   }
   const data = await res.json();
+  if (data.usage) recordSpend(OPENAI_MODELS[openaiIdx], data.usage.prompt_tokens | 0, data.usage.completion_tokens | 0);
   return parseInterpretation(data.choices?.[0]?.message?.content || '');
 }
 
@@ -334,6 +361,11 @@ async function handleTTS(req, res, query) {
 const STT_MODELS = [...new Set([process.env.OPENAI_STT_MODEL, 'gpt-4o-mini-transcribe', 'whisper-1'].filter(Boolean))];
 let sttIdx = 0;
 function handleSTT(req, res) {
+  if (!budgetLeft()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'budget limit reached' }));
+    return;
+  }
   if (!process.env.OPENAI_API_KEY) {
     res.writeHead(503, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'no OPENAI_API_KEY on the server' }));
@@ -377,6 +409,10 @@ function handleSTT(req, res) {
         return;
       }
       const j = await r.json();
+      // transcription isn't token-priced here: flat, conservative 1c per clip
+      spentUSD += 0.01;
+      try { fs.writeFileSync(USAGE_FILE, JSON.stringify({ spentUSD })); } catch {}
+      console.log(`[budget] $0.0100 this clip · $${spentUSD.toFixed(2)} of $${BUDGET_USD} total`);
       console.log('[stt] heard:', JSON.stringify((j.text || '').slice(0, 80)));
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ text: j.text || '' }));
@@ -471,6 +507,11 @@ function onConnection(ws) {
 
     // Displays ask the server to interpret a drawing with Claude.
     if (client.role === 'display' && msg.type === 'interpret') {
+      if (!budgetLeft()) {
+        console.log('[budget] over limit - refusing AI call');
+        sendTo('display', { type: 'assistant', ai: false });
+        return;
+      }
       if (!aiEnabled) {
         sendTo('display', { type: 'assistant', ai: false });
         return;
@@ -565,6 +606,7 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`  Trackpad (phone, same wifi): http://${ip}:${PORT}/trackpad  (no openssl - voice uses the laptop mic)`);
   }
   console.log(`  Test bench (laptop only):  http://localhost:${PORT}/test`);
+  console.log(`  Budget: $${spentUSD.toFixed(2)} spent of $${BUDGET_USD} cap${spentUSD >= BUDGET_USD ? ' - AI DISABLED' : ''}`);
   console.log(ELEVEN_KEY
     ? '  Speech output: ElevenLabs'
     : '  Speech output: browser voice (set ELEVENLABS_API_KEY for a natural one)');
