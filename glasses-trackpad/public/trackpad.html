@@ -316,8 +316,66 @@
   function canRecordHere() {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
   }
+  // Preferred order: the phone's own FREE speech recognition (Siri's, no
+  // API key) -> record + server transcription (needs OpenAI key) -> the
+  // laptop's recognizer.
+  let phoneRec = null, phoneListening = false;
+  function startPhoneSR() {
+    try {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      phoneRec = new SR();
+      phoneRec.lang = 'en-US';
+      phoneRec.interimResults = false;
+      phoneRec.maxAlternatives = 1;
+      phoneRec.onresult = (e) => {
+        phoneListening = false;
+        const t = e.results && e.results[0] && e.results[0][0] ? e.results[0][0].transcript : '';
+        if (t.trim()) {
+          showBanner('\u{1F3A4} \u201C' + t.trim().slice(0, 40) + '\u201D');
+          send({ type: 'speech', text: t.trim().slice(0, 300) });
+          vibrate([30, 40, 30]);
+        } else {
+          send({ type: 'listening', on: false });
+          showBanner('\u{1F3A4} heard nothing');
+        }
+      };
+      phoneRec.onerror = (e) => {
+        phoneListening = false;
+        send({ type: 'listening', on: false });
+        if (e.error === 'not-allowed') {
+          showBanner('\u{1F3A4} mic blocked \u2014 allow it in Safari');
+        } else {
+          // recognizer unavailable (e.g. dictation off): try the other paths
+          showBanner('\u{1F3A4} trying another mic path\u2026');
+          fallbackTalk();
+        }
+      };
+      phoneRec.onend = () => {
+        if (phoneListening) { phoneListening = false; send({ type: 'listening', on: false }); }
+      };
+      phoneRec.start();
+      phoneListening = true;
+      send({ type: 'listening', on: true });
+      showBanner('\u{1F3A4} listening \u2014 double-tap when done');
+      vibrate(20);
+      return true;
+    } catch {
+      phoneListening = false;
+      return false;
+    }
+  }
+  async function fallbackTalk() {
+    if (canRecordHere()) {
+      try { await startRecording(); return; } catch {}
+    }
+    send({ type: 'talk' });
+  }
   async function talkGesture() {
+    if (phoneListening) { try { phoneRec.stop(); } catch {} return; }
     if (recorder && recorder.state === 'recording') { stopRecording(); return; }
+    if (location.protocol === 'https:' && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
+      if (startPhoneSR()) return;
+    }
     if (canRecordHere()) {
       try {
         await startRecording();
