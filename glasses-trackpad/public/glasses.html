@@ -1522,6 +1522,61 @@
 
 
   // ---- the model's universal lever: read & replace live task state ----
+  // One line of human context: what the user is DOING and where they are.
+  function taskBrief() {
+    if (screen === 'quiz') {
+      if (qz.finished) return 'Math quiz finished: ' + qz.got + ' right, ' + qz.missed + ' missed';
+      const q = qz.queue[qz.pos] || {};
+      return 'Taking a math quiz: question ' + (qz.pos + 1) + ' of ' + qz.queue.length +
+        ' (' + (q.topic || '') + ' - "' + (q.text || '') + '"), answer ' + (qz.revealed ? 'revealed' : 'hidden');
+    }
+    if (screen === 'cook') {
+      if (ck.phase === 'ingredients') return 'Cooking carbonara: gathering ingredients, ' +
+        ck.checked.filter(Boolean).length + '/' + ck.ingredients.length + ' checked';
+      if (ck.phase === 'done') return 'Cooking carbonara: finished';
+      return 'Cooking carbonara: on step ' + (ck.step + 1) + ' of ' + ck.steps.length +
+        ' ("' + (ck.steps[ck.step] || {}).text + '")';
+    }
+    if (screen === 'ideate') {
+      if (id8.phase === 'intake') return 'Hackathon ideation: answering intake question ' + (id8.qi + 1) + ' of ' + INTAKE.length;
+      if (id8.finished) return 'Hackathon ideation: reviewing the shortlist';
+      const list = id8.ideas || IDEAS;
+      return 'Hackathon ideation: considering idea ' + (id8.pos + 1) + ' of ' + list.length +
+        ' ("' + ((list[id8.pos] || {}).title || '') + '")';
+    }
+    if (screen === 'translate') {
+      if (tr.photoImage) return "Translating the user's own photo to Spanish";
+      return 'Translation practice: scene "' + tr.scenes[tr.scene].name + '" to Spanish';
+    }
+    if (screen === 'nav') {
+      if (nv.phase === 'pick') return 'Getting directions: choosing a destination';
+      if (nv.phase === 'arrived') return 'Directions: arrived at ' + nv.dest;
+      return 'Walking to ' + nv.dest + ': turn ' + (nv.step + 1) + ' of ' + nv.steps.length +
+        ' ("' + ((nv.steps[nv.step] || {}).text || '') + '")';
+    }
+    if (screen === 'custom') {
+      if (!cu.mode) return 'On the blank "new task" screen, waiting for the user to describe a task';
+      if (cu.mode === 'steps') return 'Custom task "' + cu.title + '": step ' + (cu.step + 1) + ' of ' + cu.steps.length +
+        ' ("' + ((cu.steps[cu.step] || {}).text || '') + '")';
+      return 'Custom task "' + cu.title + '": checklist, ' + cu.items.filter((i) => i.done).length + '/' + cu.items.length + ' done';
+    }
+    return 'On the home menu, choosing a task';
+  }
+
+  // Rolling history of the last few user-gesture -> assistant exchanges,
+  // so follow-ups ("yes", "tell me more", "swap it") resolve correctly.
+  const convo = [];
+  let convoPending = null;
+  function recordExchange(userDesc) {
+    convoPending = userDesc;
+  }
+  function recordAssistant(say) {
+    if (!convoPending) return;
+    convo.push({ user: convoPending.slice(0, 120), ai: String(say || '').slice(0, 100) });
+    if (convo.length > 8) convo.shift();
+    convoPending = null;
+  }
+
   function taskState() {
     if (screen === 'quiz') {
       return { quiz: { pos: qz.pos, revealed: qz.revealed, finished: qz.finished, got: qz.got, missed: qz.missed, skipped: qz.skipped, queue: qz.queue } };
@@ -1769,11 +1824,14 @@
     clearTimeout(pendingTimer);
     pendingTimer = setTimeout(() => localInterpret(), 12000);
     showBubble('\u{1F3A4} \u201C' + text.trim().slice(0, 60) + '\u201D \u2026', true);
+    recordExchange('said "' + text.trim().slice(0, 120) + '"');
     const payload = {
       screen,
       mode: 'steer',
       speech: text.trim().slice(0, 300),
       state: taskState(),
+      task: taskBrief(),
+      history: convo.slice(-6),
       extraCommands: extraCmds(),
       elements: [...card.querySelectorAll('[data-action]')].map((el) => ({
         label: el.dataset.action, cmd: el.dataset.cmd,
@@ -1890,6 +1948,15 @@
     const crossedHits = elements.filter((e) => e.crossed);
     pending = { closed: anyClosed, hits: circledHits.length ? circledHits : (anyClosed ? [] : crossedHits) };
 
+    const markedList = elements.filter((e) => e.circled || e.crossed || e.underlined || e.touched).map((e) => e.label)
+      .concat(contents.filter((c) => c.circled || c.crossed || c.underlined || c.touched).map((c) => c.id));
+    recordExchange([
+      spokenWith ? 'said "' + spokenWith + '"' : '',
+      markedList.length ? 'marked ' + markedList.slice(0, 3).join(', ')
+        : (nearest ? 'drew ' + an.map((a) => a.shape).join('+') + ' near ' + nearest.label
+                   : 'drew ' + an.map((a) => a.shape).join('+')),
+    ].filter(Boolean).join(' while ') || 'drew something');
+
     if (ws && ws.readyState === WebSocket.OPEN) {
       showBubble(spokenWith
         ? '🎤 “' + spokenWith.slice(0, 40) + '” + ✎ …'
@@ -1923,8 +1990,9 @@
         elements: elements.map(({ label, cmd, circled, crossed, underlined, touched }) => ({ label, cmd, circled, crossed, underlined, touched })),
         contents,
         // the user's subject, pre-computed: everything the ink touched
-        marked: elements.filter((e) => e.circled || e.crossed || e.underlined || e.touched).map((e) => e.label)
-          .concat(contents.filter((c) => c.circled || c.crossed || c.underlined || c.touched).map((c) => c.id)),
+        marked: markedList,
+        task: taskBrief(),
+        history: convo.slice(-6),
       };
       // screenshot the HUD (strokes included) so the model can see the drawing
       captureHud({ x: minX, y: minY, w: maxX - minX, h: maxY - minY }).then(({ image, crop }) => {
@@ -2175,6 +2243,7 @@
     }
     if (!msg.ai) { localInterpret(); return; }
     pending = null;
+    recordAssistant(msg.say);
     const actions = Array.isArray(msg.actions) ? msg.actions : [];
     const edits = Array.isArray(msg.edits) ? msg.edits : [];
     const alts = Array.isArray(msg.alternatives) ? msg.alternatives.filter((a) => a && typeof a.label === 'string') : [];
