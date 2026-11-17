@@ -231,6 +231,9 @@ async function interpretWithOpenAI(payload) {
     },
     body: JSON.stringify({
       model: OPENAI_MODELS[openaiIdx],
+      // gpt-5 family are reasoning models: keep thinking short so answers
+      // come back fast enough for an interactive gesture loop
+      ...(OPENAI_MODELS[openaiIdx].startsWith('gpt-5') ? { reasoning_effort: 'low' } : {}),
       max_completion_tokens: 2000,
       response_format: { type: 'json_object' },
       messages: [

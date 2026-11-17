@@ -1822,7 +1822,7 @@
     }
     pending = { closed: false, hits: [], speech: true };
     clearTimeout(pendingTimer);
-    pendingTimer = setTimeout(() => localInterpret(), 12000);
+    pendingTimer = setTimeout(() => localInterpret(), 30000);
     showBubble('\u{1F3A4} \u201C' + text.trim().slice(0, 60) + '\u201D \u2026', true);
     recordExchange('said "' + text.trim().slice(0, 120) + '"');
     const payload = {
@@ -1962,7 +1962,7 @@
         ? '🎤 “' + spokenWith.slice(0, 40) + '” + ✎ …'
         : 'interpreting your drawing…', true);
       clearTimeout(pendingTimer);
-      pendingTimer = setTimeout(() => localInterpret(), 12000);
+      pendingTimer = setTimeout(() => localInterpret(), 30000);
       const payload = {
         screen,
         mode: 'steer',
@@ -2206,7 +2206,16 @@
   }
 
   function onAssistant(msg) {
-    if (!pending) return;
+    if (!pending) {
+      // the answer arrived after we gave up waiting: show it anyway
+      if (msg.ai && (msg.say || (msg.actions && msg.actions.length) || (msg.edits && msg.edits.length) || msg.state)) {
+        recordAssistant(msg.say);
+        showBubble(msg.say || '\u2026');
+        applyAssistant(Array.isArray(msg.actions) ? msg.actions : [],
+          Array.isArray(msg.edits) ? msg.edits : [], msg.state, msg.say);
+      }
+      return;
+    }
     clearTimeout(pendingTimer);
     if (pending.photo) {
       pending = null;
