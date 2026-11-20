@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 31; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 32; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -99,6 +99,9 @@ Gesture vocabulary (defaults, override with judgment and the screenshot):
 BUILD-FROM-SCRATCH (state.custom): when the user asks for something NO preset covers - spoken or written, from the launcher, the "NEW TASK" screen, or mid-task ("help me stretch for 5 minutes", "plan my morning", "quiz me on Spanish words", "box breathing") - BUILD the task yourself by returning
  "state": {"custom": {"title": "<2-3 words>", "chip": "<short label>", "mode": "steps"|"list", "steps": [{"text": "<one instruction, under 10 words>"}, ...], "items": [{"text": "<item>", "done": false}, ...], "step": 0, "note": "<optional one-liner>"}}
 Use "steps" for guided sequences (one per glance, user flicks through; 3-12 steps) and "list" for checklists/options (tappable; up to 12). Glasses rules apply: tiny texts, big ideas. confidence "high", "say" introduces it in under 10 words. You own this task afterwards: marks, writing and speech on it are handled by rewriting state.custom (reorder, extend, check things off, change mode). Prefer a PRESET task (quiz/cook/translate/directions/ideas) when the request clearly matches one - open it with its action or rewrite its state instead.
+SETUP QUESTIONS (state.custom mode "ask"): when a from-scratch request is complex or underspecified ("design a poster for my project", "plan a weekend trip"), do NOT build the whole plan blind - interview the user first, ONE question per turn, 2-3 questions total:
+ "state": {"custom": {"title": "<2-3 words>", "chip": "<short>", "mode": "ask", "question": "<under 8 words>", "options": ["<under 5 words>", ...], "asked": [<carry forward every earlier {"q", "a"} pair>]}}
+2-4 options, each concrete and under 5 words. The glasses number them 1-N and read them aloud; the user answers by tapping one (custom:opt:<i> in extraCommands), writing or saying its NUMBER (1-based) or its words, or saying something else entirely - a free answer is just as valid: record it and move on. state.custom.asked holds every answer so far: USE them, never re-ask one. After the last question return the finished plan (mode "steps" or "list", tailored to EVERY answer, keep "asked"). Example: "design a poster" -> "What is the poster for?" [my research project, a class, an event] -> "What style?" [clean and minimal, bold and loud, playful] -> "Where will it hang?" [conference hall, hallway, online] -> then steps: headline wording, layout sketch, colors and fonts, figures to include, print size - each step concrete and under 10 words, reflecting their answers.
 
 SPECIAL TASK: when the payload has task "photo-translate", the attached image is a photo the user just took with their camera. Read ALL the text you can see in it and translate each distinct piece to Spanish. Respond with the usual JSON shape plus a "lines" field:
 {"say": "<one-sentence summary of what the photo shows>", "confidence": "high", "actions": [], "edits": [], "lines": [{"orig": "<text as written>", "es": "<Spanish translation>"}, ...]}

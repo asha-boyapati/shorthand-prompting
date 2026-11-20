@@ -527,7 +527,7 @@
   // tappable checklist. The model owns and rewrites this freely. ---
   const cu = {};
   function customReset() {
-    Object.assign(cu, { title: '', chip: '', mode: '', items: [], steps: [], step: 0, note: '' });
+    Object.assign(cu, { title: '', chip: '', mode: '', items: [], steps: [], step: 0, note: '', question: '', options: [], asked: [] });
   }
   function customSpeakStep() {
     const st = cu.steps[cu.step];
@@ -821,6 +821,18 @@
         '</div>';
       return;
     }
+    if (cu.mode === 'ask') {
+      const rows = cu.options.map((o, i) =>
+        '<div class="ing" data-action="' + esc(o) + '" data-cmd="custom:opt:' + i + '">' +
+        '<span class="box">' + (i + 1) + '</span>' + esc(o) + '</div>').join('');
+      card.innerHTML =
+        '<div class="head"><span data-content="custom-title">' + esc((cu.title || 'NEW TASK').toUpperCase()) + ' \u00b7 setup</span>' +
+          (cu.chip ? '<span class="chip task" data-content="custom-chip">' + esc(cu.chip) + '</span>' : '') + '</div>' +
+        '<div class="bigq" style="font-size:26px; margin:12px 0;" data-content="custom-question">' + esc(cu.question || '\u2026') + '</div>' +
+        '<div class="scrollable" id="scrollable">' + rows + '</div>' +
+        '<div class="hint">tap one \u00b7 write its number \u00b7 or say it</div>';
+      return;
+    }
     if (cu.mode === 'steps') {
       const st = cu.steps[cu.step] || { text: '\u2026' };
       card.innerHTML =
@@ -1015,6 +1027,16 @@
     }
 
     if (ns === 'custom') {
+      if (verb === 'opt') {
+        const o = cu.options[+arg];
+        if (!o) return false;
+        cu.asked.push({ q: cu.question, a: o });
+        cu.question = '…';
+        cu.options = [];
+        render();
+        sendSpeech(o);
+        return true;
+      }
       if (verb === 'item') {
         const it = cu.items[+arg];
         if (!it) return false;
@@ -1556,6 +1578,7 @@
     }
     if (screen === 'custom') {
       if (!cu.mode) return 'On the blank "new task" screen, waiting for the user to describe a task';
+      if (cu.mode === 'ask') return 'Custom task setup "' + cu.title + '": you asked "' + cu.question + '", ' + cu.asked.length + ' setup answer(s) given so far, waiting for their pick';
       if (cu.mode === 'steps') return 'Custom task "' + cu.title + '": step ' + (cu.step + 1) + ' of ' + cu.steps.length +
         ' ("' + ((cu.steps[cu.step] || {}).text || '') + '")';
       return 'Custom task "' + cu.title + '": checklist, ' + cu.items.filter((i) => i.done).length + '/' + cu.items.length + ' done';
@@ -1594,7 +1617,7 @@
       return { nav: { phase: nv.phase, dest: nv.dest, eta: nv.eta, step: nv.step, steps: nv.steps } };
     }
     if (screen === 'custom') {
-      return { custom: { title: cu.title, chip: cu.chip, mode: cu.mode, items: cu.items, steps: cu.steps, step: cu.step, note: cu.note } };
+      return { custom: { title: cu.title, chip: cu.chip, mode: cu.mode, items: cu.items, steps: cu.steps, step: cu.step, note: cu.note, question: cu.question, options: cu.options, asked: cu.asked } };
     }
     return {};
   }
@@ -1697,20 +1720,29 @@
         if (typeof c.title === 'string') cu.title = c.title.slice(0, 26);
         if (typeof c.chip === 'string') cu.chip = c.chip.slice(0, 18);
         if (typeof c.note === 'string') cu.note = c.note.slice(0, 90);
+        if (Array.isArray(c.asked)) cu.asked = c.asked.slice(0, 8).map((x) => ({ q: String((x && x.q) || '').slice(0, 60), a: String((x && x.a) || '').slice(0, 48) }));
+        if (typeof c.question === 'string' && Array.isArray(c.options) && c.options.length && c.options.every((x) => typeof x === 'string')) {
+          cu.question = c.question.slice(0, 80);
+          cu.options = c.options.slice(0, 4).map((x) => x.slice(0, 48));
+          cu.mode = 'ask';
+        }
         if (Array.isArray(c.steps) && c.steps.length && c.steps.every((x) => x && typeof x.text === 'string')) {
           cu.steps = c.steps.slice(0, 15).map((x) => ({ text: String(x.text).slice(0, 90) }));
           cu.mode = 'steps';
           cu.step = 0;
+          cu.question = ''; cu.options = [];
         }
         if (Array.isArray(c.items) && c.items.length && c.items.every((x) => x && typeof x.text === 'string')) {
           cu.items = c.items.slice(0, 12).map((x) => ({ text: String(x.text).slice(0, 60), done: !!x.done }));
           cu.mode = 'list';
+          cu.question = ''; cu.options = [];
         }
         if (c.mode === 'steps' || c.mode === 'list') cu.mode = c.mode;
         if (Number.isInteger(c.step)) cu.step = Math.max(0, Math.min(Math.max(0, cu.steps.length - 1), c.step));
         if (cu.mode) {
           if (screen !== 'custom') screen = 'custom';
           if (cu.mode === 'steps') customSpeakStep();
+          else if (cu.mode === 'ask' && cu.options.length) speak(cu.question + '. ' + cu.options.map((o, i) => (i + 1) + ': ' + o).join('. '));
           touched = true;
         }
       }
@@ -1739,7 +1771,9 @@
     ] : screen === 'custom' && cu.mode === 'steps' ? [
       { cmd: 'custom:next', desc: 'advance to the next step' },
       { cmd: 'custom:back', desc: 'go back one step' },
-    ] : []);
+    ] : screen === 'custom' && cu.mode === 'ask' ? cu.options.map((o, i) => (
+      { cmd: 'custom:opt:' + i, desc: 'answer the setup question with "' + o + '"' }
+    )) : []);
   }
 
   // --- speech input: double-tap on the pad -> the glasses listen ---------
