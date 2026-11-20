@@ -1477,7 +1477,17 @@
       stroke = [];
       drawStrokes();
       clearTimeout(strokeIdleTimer);
-      strokeIdleTimer = setTimeout(() => { if (!speechHold) interpretStrokes(); }, STROKE_IDLE_MS);
+      // one big closed loop = an unambiguous circle gesture: fire almost
+      // immediately on finger-up. Anything else might be writing getting
+      // more strokes, so give it the full pause to join them.
+      let wait = STROKE_IDLE_MS;
+      if (strokes.length === 1) {
+        try {
+          const a = analyzeStroke(strokes[0]);
+          if (a && a.closed && a.L > 150) wait = 250;
+        } catch (e) { /* keep the default pause */ }
+      }
+      strokeIdleTimer = setTimeout(() => { if (!speechHold) interpretStrokes(); }, wait);
     }
   }
 
