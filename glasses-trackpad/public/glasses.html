@@ -534,6 +534,31 @@
     if (st) speak(st.text);
   }
 
+  // --- poster: a live visual draft the model designs and the user tweaks
+  // by circling parts and saying/writing changes. The model owns state.poster. ---
+  const po = {};
+  function posterReset() {
+    Object.assign(po, { title: '', subtitle: '', accent: '#58b6ff', bg: '#101722', ink: '#f2f5f9', sections: [], footer: '', note: '' });
+  }
+  function renderPoster() {
+    const secs = po.sections.map((s, i) =>
+      '<div style="margin:9px 0 0;"><div style="color:' + po.accent + '; font-weight:700; font-size:15px;" data-content="poster-sec-' + i + '-head">' + esc(s.head) + '</div>' +
+      '<div style="font-size:13px; opacity:.85;" data-content="poster-sec-' + i + '-body">' + esc(s.body) + '</div></div>').join('');
+    card.innerHTML =
+      '<div class="head"><span data-content="poster-name">POSTER · draft</span>' +
+        '<span class="chip task" data-content="poster-accent" style="background:' + po.accent + '; color:#081018;">accent ' + esc(po.accent) + '</span>' +
+        '<span class="chip task" data-content="poster-bg" style="background:' + po.bg + '; color:#dfe8f2;">bg ' + esc(po.bg) + '</span></div>' +
+      '<div style="margin:8px auto 4px; width:330px; min-height:350px; background:' + po.bg + '; color:' + po.ink + '; border:1px solid #243041; border-radius:10px; padding:18px 20px; box-sizing:border-box;">' +
+        '<div style="border-left:6px solid ' + po.accent + '; padding-left:10px;">' +
+          '<div style="font-size:21px; font-weight:800; line-height:1.15;" data-content="poster-title">' + esc(po.title) + '</div>' +
+          (po.subtitle ? '<div style="font-size:14px; opacity:.9; margin-top:4px;" data-content="poster-subtitle">' + esc(po.subtitle) + '</div>' : '') +
+        '</div>' + secs +
+        (po.footer ? '<div style="margin-top:12px; font-size:12px; opacity:.7;" data-content="poster-footer">' + esc(po.footer) + '</div>' : '') +
+      '</div>' +
+      (po.note ? '<div class="hint" data-content="poster-note">' + esc(po.note) + '</div>' : '') +
+      '<div class="hint coach">circle any part · say or write the change</div>';
+  }
+
   // --- piano state ---
   const WHITE_KEYS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
   const BLACK_KEYS = [
@@ -572,7 +597,7 @@
     } catch {}
   }
 
-  quizReset(); cookReset(); ideateReset(); translateReset(); navReset(); customReset(); pianoReset();
+  quizReset(); cookReset(); ideateReset(); translateReset(); navReset(); customReset(); posterReset(); pianoReset();
 
   // ====================== rendering ======================
   function homeBtn() {
@@ -588,6 +613,7 @@
     else if (screen === 'translate') renderTranslate();
     else if (screen === 'nav') renderNav();
     else if (screen === 'custom') renderCustom();
+    else if (screen === 'poster') renderPoster();
     else if (screen === 'piano') renderPiano();
     else renderSoon();
     updateHover();
@@ -1583,6 +1609,7 @@
         ' ("' + ((cu.steps[cu.step] || {}).text || '') + '")';
       return 'Custom task "' + cu.title + '": checklist, ' + cu.items.filter((i) => i.done).length + '/' + cu.items.length + ' done';
     }
+    if (screen === 'poster') return 'Designing a poster "' + po.title + '": the draft is rendered on screen; marks and words are tweaks to it';
     return 'On the home menu, choosing a task';
   }
 
@@ -1618,6 +1645,9 @@
     }
     if (screen === 'custom') {
       return { custom: { title: cu.title, chip: cu.chip, mode: cu.mode, items: cu.items, steps: cu.steps, step: cu.step, note: cu.note, question: cu.question, options: cu.options, asked: cu.asked } };
+    }
+    if (screen === 'poster') {
+      return { poster: { title: po.title, subtitle: po.subtitle, accent: po.accent, bg: po.bg, ink: po.ink, sections: po.sections, footer: po.footer } };
     }
     return {};
   }
@@ -1743,6 +1773,24 @@
           if (screen !== 'custom') screen = 'custom';
           if (cu.mode === 'steps') customSpeakStep();
           else if (cu.mode === 'ask' && cu.options.length) speak(cu.question + '. ' + cu.options.map((o, i) => (i + 1) + ': ' + o).join('. '));
+          touched = true;
+        }
+      }
+      if (s.poster && typeof s.poster === 'object') {
+        const pp = s.poster;
+        const okColor = (c) => (typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c.trim())) ? c.trim() : null;
+        if (typeof pp.title === 'string') po.title = pp.title.slice(0, 60);
+        if (typeof pp.subtitle === 'string') po.subtitle = pp.subtitle.slice(0, 90);
+        if (typeof pp.footer === 'string') po.footer = pp.footer.slice(0, 80);
+        if (typeof pp.note === 'string') po.note = pp.note.slice(0, 90);
+        if (okColor(pp.accent)) po.accent = okColor(pp.accent);
+        if (okColor(pp.bg)) po.bg = okColor(pp.bg);
+        if (okColor(pp.ink)) po.ink = okColor(pp.ink);
+        if (Array.isArray(pp.sections) && pp.sections.length && pp.sections.every((x) => x && typeof x.head === 'string')) {
+          po.sections = pp.sections.slice(0, 4).map((x) => ({ head: String(x.head).slice(0, 40), body: String(x.body || '').slice(0, 110) }));
+        }
+        if (po.title) {
+          if (screen !== 'poster') screen = 'poster';
           touched = true;
         }
       }
