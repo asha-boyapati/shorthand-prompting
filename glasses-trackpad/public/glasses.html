@@ -538,14 +538,14 @@
   // by circling parts and saying/writing changes. The model owns state.poster. ---
   const po = {};
   function posterReset() {
-    Object.assign(po, { title: '', subtitle: '', accent: '#58b6ff', bg: '#101722', ink: '#f2f5f9', sections: [], footer: '', note: '' });
+    Object.assign(po, { kind: 'poster', title: '', subtitle: '', accent: '#58b6ff', bg: '#101722', ink: '#f2f5f9', sections: [], footer: '', note: '' });
   }
   function renderPoster() {
     const secs = po.sections.map((s, i) =>
       '<div style="margin:9px 0 0;"><div style="color:' + po.accent + '; font-weight:700; font-size:15px;" data-content="poster-sec-' + i + '-head">' + esc(s.head) + '</div>' +
       '<div style="font-size:13px; opacity:.85;" data-content="poster-sec-' + i + '-body">' + esc(s.body) + '</div></div>').join('');
     card.innerHTML =
-      '<div class="head"><span data-content="poster-name">POSTER · draft</span>' +
+      '<div class="head"><span data-content="poster-name">' + esc((po.kind || 'poster').toUpperCase()) + ' · draft</span>' +
         '<span class="chip task" data-content="poster-accent" style="background:' + po.accent + '; color:#081018;">accent ' + esc(po.accent) + '</span>' +
         '<span class="chip task" data-content="poster-bg" style="background:' + po.bg + '; color:#dfe8f2;">bg ' + esc(po.bg) + '</span></div>' +
       '<div style="margin:8px auto 4px; width:330px; min-height:350px; background:' + po.bg + '; color:' + po.ink + '; border:1px solid #243041; border-radius:10px; padding:18px 20px; box-sizing:border-box;">' +
@@ -1609,7 +1609,7 @@
         ' ("' + ((cu.steps[cu.step] || {}).text || '') + '")';
       return 'Custom task "' + cu.title + '": checklist, ' + cu.items.filter((i) => i.done).length + '/' + cu.items.length + ' done';
     }
-    if (screen === 'poster') return 'Designing a poster "' + po.title + '": the draft is rendered on screen; marks and words are tweaks to it';
+    if (screen === 'poster') return 'Designing a ' + (po.kind || 'poster') + ' "' + po.title + '": the draft is rendered on screen; marks and words are tweaks to it';
     return 'On the home menu, choosing a task';
   }
 
@@ -1647,7 +1647,7 @@
       return { custom: { title: cu.title, chip: cu.chip, mode: cu.mode, items: cu.items, steps: cu.steps, step: cu.step, note: cu.note, question: cu.question, options: cu.options, asked: cu.asked } };
     }
     if (screen === 'poster') {
-      return { poster: { title: po.title, subtitle: po.subtitle, accent: po.accent, bg: po.bg, ink: po.ink, sections: po.sections, footer: po.footer } };
+      return { poster: { kind: po.kind, title: po.title, subtitle: po.subtitle, accent: po.accent, bg: po.bg, ink: po.ink, sections: po.sections, footer: po.footer } };
     }
     return {};
   }
@@ -1779,6 +1779,7 @@
       if (s.poster && typeof s.poster === 'object') {
         const pp = s.poster;
         const okColor = (c) => (typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c.trim())) ? c.trim() : null;
+        if (typeof pp.kind === 'string') po.kind = pp.kind.slice(0, 16);
         if (typeof pp.title === 'string') po.title = pp.title.slice(0, 60);
         if (typeof pp.subtitle === 'string') po.subtitle = pp.subtitle.slice(0, 90);
         if (typeof pp.footer === 'string') po.footer = pp.footer.slice(0, 80);
