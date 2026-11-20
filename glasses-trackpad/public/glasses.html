@@ -1403,11 +1403,14 @@
   // A "drawing" is one or more strokes made in quick succession (so an X,
   // an arrow, or a question mark reads as one gesture). Interpretation
   // fires after a short pause in drawing.
-  const STROKE_IDLE_MS = 900;
+  const STROKE_FIRE_MS = 200; // lift-to-send: just enough to batch the capture
   let strokes = [];   // completed strokes of the current drawing
   let stroke = [];    // stroke in progress
   let fadeTimer = null;
   let strokeIdleTimer = null;
+  let inkAwaiting = false; // a drawing was sent; its ink stays until the reply
+  let staleReplies = 0;    // replies to superseded drawings, dropped on arrival
+  let drawGen = 0;         // bumped on every stroke start to abandon stale captures
 
   function drawStrokes() {
     inkCtx.clearRect(0, 0, W, H);
@@ -1453,6 +1456,15 @@
       // a fading drawing was already interpreted - don't let its strokes
       // rejoin the new drawing
       if (ink.classList.contains('fade')) clearInk(false);
+      drawGen++;
+      if (inkAwaiting) {
+        // the previous lift was already sent - this stroke supersedes it:
+        // drop that reply when it arrives, keep the strokes, resend on lift
+        staleReplies++;
+        inkAwaiting = false;
+        pending = null;
+        clearTimeout(pendingTimer);
+      }
       clearTimeout(fadeTimer);
       clearTimeout(strokeIdleTimer); // another stroke joins this drawing
       ink.classList.remove('fade');
@@ -1477,17 +1489,10 @@
       stroke = [];
       drawStrokes();
       clearTimeout(strokeIdleTimer);
-      // one big closed loop = an unambiguous circle gesture: fire almost
-      // immediately on finger-up. Anything else might be writing getting
-      // more strokes, so give it the full pause to join them.
-      let wait = STROKE_IDLE_MS;
-      if (strokes.length === 1) {
-        try {
-          const a = analyzeStroke(strokes[0]);
-          if (a && a.closed && a.L > 150) wait = 250;
-        } catch (e) { /* keep the default pause */ }
-      }
-      strokeIdleTimer = setTimeout(() => { if (!speechHold) interpretStrokes(); }, wait);
+      // lift = send: every finger-up goes to the model almost immediately.
+      // If more strokes follow (writing a word), each lift re-sends the
+      // WHOLE drawing and the earlier in-flight reply is dropped as stale.
+      strokeIdleTimer = setTimeout(() => { if (!speechHold) interpretStrokes(); }, STROKE_FIRE_MS);
     }
   }
 
@@ -2088,13 +2093,16 @@
         history: convo.slice(-6),
       };
       // screenshot the HUD (strokes included) so the model can see the drawing
+      const gen = drawGen;
       captureHud({ x: minX, y: minY, w: maxX - minX, h: maxY - minY }).then(({ image, crop }) => {
+        if (gen !== drawGen) return; // a new stroke joined mid-capture; its lift re-sends everything
         if (image) payload.image = image;
         if (crop) payload.imageCrop = crop;
-        clearInk(true);
         if (ws && ws.readyState === WebSocket.OPEN) {
+          inkAwaiting = true; // ink keeps glowing until the reply lands
           ws.send(JSON.stringify({ type: 'interpret', payload }));
         } else {
+          clearInk(true);
           localInterpret();
         }
       });
@@ -2299,6 +2307,8 @@
   }
 
   function onAssistant(msg) {
+    if (staleReplies > 0) { staleReplies--; return; } // reply to a superseded drawing
+    if (inkAwaiting) { inkAwaiting = false; clearInk(true); }
     if (!pending) {
       // the answer arrived after we gave up waiting: show it anyway
       if (msg.ai && (msg.say || (msg.actions && msg.actions.length) || (msg.edits && msg.edits.length) || msg.state)) {
@@ -2369,6 +2379,7 @@
   }
 
   function localInterpret() {
+    if (inkAwaiting) { inkAwaiting = false; clearInk(true); }
     if (!pending) return;
     if (pending.photo) {
       pending = null;
