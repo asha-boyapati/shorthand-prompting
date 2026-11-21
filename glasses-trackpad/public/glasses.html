@@ -1619,7 +1619,9 @@
     }
     if (screen === 'custom') {
       if (!cu.mode) return 'On the blank "new task" screen, waiting for the user to describe a task';
-      if (cu.mode === 'ask') return 'Custom task setup "' + cu.title + '": you asked "' + cu.question + '", ' + cu.asked.length + ' setup answer(s) given so far, waiting for their pick';
+      if (cu.mode === 'ask') return cu.options.length
+        ? 'Custom task setup "' + cu.title + '": you asked "' + cu.question + '", ' + cu.asked.length + ' setup answer(s) given so far, waiting for their pick'
+        : 'Custom task setup "' + cu.title + '": they just answered a setup question (' + cu.asked.length + ' so far) - reply with the NEXT question or the finished result';
       if (cu.mode === 'steps') return 'Custom task "' + cu.title + '": step ' + (cu.step + 1) + ' of ' + cu.steps.length +
         ' ("' + ((cu.steps[cu.step] || {}).text || '') + '")';
       return 'Custom task "' + cu.title + '": checklist, ' + cu.items.filter((i) => i.done).length + '/' + cu.items.length + ' done';
@@ -1835,9 +1837,7 @@
     ] : screen === 'custom' && cu.mode === 'steps' ? [
       { cmd: 'custom:next', desc: 'advance to the next step' },
       { cmd: 'custom:back', desc: 'go back one step' },
-    ] : screen === 'custom' && cu.mode === 'ask' ? cu.options.map((o, i) => (
-      { cmd: 'custom:opt:' + i, desc: 'answer the setup question with "' + o + '"' }
-    )) : []);
+    ] : []);
   }
 
   // --- speech input: double-tap on the pad -> the glasses listen ---------
