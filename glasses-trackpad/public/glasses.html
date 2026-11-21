@@ -1520,7 +1520,12 @@
       // lift = send: every finger-up goes to the model almost immediately.
       // If more strokes follow (writing a word), each lift re-sends the
       // WHOLE drawing and the earlier in-flight reply is dropped as stale.
-      strokeIdleTimer = setTimeout(() => { if (!speechHold) interpretStrokes(); }, STROKE_FIRE_MS);
+      strokeIdleTimer = setTimeout(() => {
+        if (!speechHold) interpretStrokes();
+        // mic is open: the ink rides along with the words - but SAY so,
+        // a silently-held drawing looks dead
+        else showBubble('\u{1F3A4} + ✎ — finish talking and they go together', true);
+      }, STROKE_FIRE_MS);
     }
   }
 
@@ -1879,11 +1884,12 @@
     clearTimeout(speechHoldTimer);
     if (speechHold) {
       if (strokes.length) showToast('\u{1F3A4} + \u270E \u2014 ink waits for your words');
-      // never hold forever
+      // never hold forever - and a stuck "listening" state must not kill
+      // drawing for long, so the cap is short
       speechHoldTimer = setTimeout(() => {
         speechHold = false;
         if (strokes.length) interpretStrokes();
-      }, 30000);
+      }, 8000);
     } else if (strokes.length) {
       // talking ended with no transcript: give the ink its normal fate
       speechHoldTimer = setTimeout(() => {
