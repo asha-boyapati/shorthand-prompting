@@ -2144,7 +2144,7 @@
       // a zoomed close-up of the ink region: ground truth for what exactly
       // was circled or written, where the full shot is too small to read
       let crop = null;
-      if (bbox && bbox.w >= 4 && bbox.h >= 4 && !serverLowCost) {
+      if (bbox && bbox.w >= 4 && bbox.h >= 4) {
         try {
           const pad = 70, sc = canvas.width / W;
           const x = Math.max(0, (bbox.x - pad) * sc);
@@ -2153,8 +2153,11 @@
           const h = Math.min(canvas.height - y, (bbox.h + pad * 2) * sc);
           if (w > 20 && h > 20) {
             const c = document.createElement('canvas');
-            c.width = Math.round(w);
-            c.height = Math.round(h);
+            // in LOW_COST the full canvas is scale 1, so upscale the crop 2x:
+            // the close-up stays legible and only costs a tiny image's tokens
+            const up = serverLowCost ? 2 : 1;
+            c.width = Math.round(w * up);
+            c.height = Math.round(h * up);
             c.getContext('2d').drawImage(canvas, x, y, w, h, 0, 0, c.width, c.height);
             crop = c.toDataURL('image/jpeg', 0.8);
           }
@@ -2462,7 +2465,7 @@
   try { audioOn = localStorage.getItem('ga-audio') !== 'off'; } catch {}
   let lastSpoken = '';
   let serverTTS = false;   // server broadcasts tts:true when ELEVENLABS_API_KEY is set
-  let serverLowCost = false; // LOW_COST=1 on the server: smaller screenshots, no crop
+  let serverLowCost = false; // LOW_COST=1 on the server: smaller screenshots (the close-up crop is always sent)
   let ttsAudio = null;     // the <audio> playing the current ElevenLabs line
   function speak(text) {
     if (!audioOn) return;
