@@ -425,6 +425,7 @@ function handleSTT(req, res) {
         fd.append('file', new Blob([body], { type: ct }), 'speech.' + ext);
         fd.append('model', STT_MODELS[sttIdx]);
         fd.append('language', 'en');
+        fd.append('prompt', 'Smart-glasses assistant commands, e.g.: design a poster, make it vegetarian, what is this, go home, next step, repeat that, an event, bolder, fix this color.');
         r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
@@ -463,6 +464,15 @@ function handleSTT(req, res) {
           const j2 = await r2.json().catch(() => ({}));
           if ((j2.text || '').trim()) j = j2;
         }
+      }
+      // Whisper invents filler like "you" / "Hello?" / "Thank you." for
+      // near-silent clips - sending those to the interpreter costs money and
+      // derails the task. Treat known hallucinations as silence.
+      const HALLUCINATIONS = ['you', 'hello', 'hello?', 'hi', 'bye', 'thank you', 'thanks', 'thanks for watching', 'thank you for watching', 'okay', 'oh', 'uh', 'um', 'the', '.'];
+      const norm = (j.text || '').trim().toLowerCase().replace(/[.!?,\s]+$/g, '');
+      if (norm && HALLUCINATIONS.includes(norm)) {
+        console.log(`[stt] "${j.text.trim()}" looks like a silence hallucination - treating as heard-nothing`);
+        j = { text: '' };
       }
       // transcription isn't token-priced here: flat, conservative 1c per clip
       spentUSD += 0.01;
