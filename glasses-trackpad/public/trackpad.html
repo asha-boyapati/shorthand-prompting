@@ -320,6 +320,8 @@
   // API key) -> record + server transcription (needs OpenAI key) -> the
   // laptop's recognizer.
   let phoneRec = null, phoneListening = false;
+  let micStartAt = 0;      // when the mic actually opened - stops within 1s are tap-bounce, ignored
+  let srRetried = false;   // one automatic re-listen when Siri hears nothing
   function startPhoneSR() {
     try {
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -331,12 +333,19 @@
         phoneListening = false;
         const t = e.results && e.results[0] && e.results[0][0] ? e.results[0][0].transcript : '';
         if (t.trim()) {
+          srRetried = false;
           showBanner('\u{1F3A4} \u201C' + t.trim().slice(0, 40) + '\u201D');
           send({ type: 'speech', text: t.trim().slice(0, 300) });
           vibrate([30, 40, 30]);
+        } else if (!srRetried && startPhoneSR()) {
+          // it gave up before the user spoke - listen again, once
+          srRetried = true;
+          showBanner('\u{1F3A4} didn\u2019t catch that \u2014 say it now');
+          vibrate([20, 60, 20]);
         } else {
+          srRetried = false;
           send({ type: 'listening', on: false });
-          showBanner('\u{1F3A4} heard nothing');
+          showBanner('\u{1F3A4} heard nothing \u2014 speak right after the buzz');
         }
       };
       phoneRec.onerror = (e) => {
@@ -355,6 +364,7 @@
       };
       phoneRec.start();
       phoneListening = true;
+      micStartAt = performance.now();
       send({ type: 'listening', on: true });
       showBanner('\u{1F3A4} listening \u2014 double-tap when done');
       vibrate(20);
@@ -371,8 +381,19 @@
     send({ type: 'talk' });
   }
   async function talkGesture() {
-    if (phoneListening) { try { phoneRec.stop(); } catch {} return; }
-    if (recorder && recorder.state === 'recording') { stopRecording(); return; }
+    // a "stop" within 1s of the mic opening is almost always a tap-bounce
+    // from the start gesture itself - ignore it, keep listening
+    if (phoneListening) {
+      if (performance.now() - micStartAt < 1000) { showBanner('\u{1F3A4} listening…'); return; }
+      try { phoneRec.stop(); } catch {}
+      return;
+    }
+    if (recorder && recorder.state === 'recording') {
+      if (performance.now() - micStartAt < 1000) { showBanner('\u{1F3A4} recording…'); return; }
+      stopRecording();
+      return;
+    }
+    srRetried = false;
     if (location.protocol === 'https:' && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
       if (startPhoneSR()) return;
     }
@@ -426,13 +447,22 @@
         showBanner('\u{1F3A4} upload failed \u2014 try again');
       }
     };
-    recorder.start();
-    send({ type: 'listening', on: true });
-    showBanner('\u{1F3A4} recording \u2014 double-tap when done');
+    recorder.onstart = () => {
+      // the mic is LIVE now - buzz so the user knows when to start talking
+      micStartAt = performance.now();
+      vibrate(20);
+      send({ type: 'listening', on: true });
+      showBanner('\u{1F3A4} recording \u2014 double-tap when done');
+    };
+    recorder.start(250); // flush chunks continuously: short clips survive glitches
+    micStartAt = performance.now(); // fallback in case onstart never fires
     recTimer = setTimeout(() => stopRecording(), 15000);
   }
   function stopRecording() {
-    try { if (recorder && recorder.state === 'recording') recorder.stop(); } catch {}
+    // let the tail of the last word land before cutting the mic
+    setTimeout(() => {
+      try { if (recorder && recorder.state === 'recording') recorder.stop(); } catch {}
+    }, 350);
   }
 
   // Eyes-free gestures (phone held at your side, out of sight):
