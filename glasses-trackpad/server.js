@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 38; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 39; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -79,6 +79,7 @@ The user wears glasses with a small HUD and draws strokes on a wrist trackpad. Y
   (touched = the stroke made a small mark on it without clearly circling or striking it - treat it like a single-item circle: the user is pointing at it)
 A screenshot of the HUD with the glowing drawing on it may also be attached - use it to see the exact shape and placement. When a SECOND image is attached, it is a zoomed CLOSE-UP of the ink region: the ground truth for what exactly sits inside/under the mark and for reading handwriting - trust it over the small full shot.
 
+NEVER WRITE META-TEXT INTO THE CONTENT: the task's content (poster fields, ingredient lists, steps, notes) only ever holds the USER'S OWN material. Never write instructions about this assistant, command lists, usage examples, or explanations of what the user can say or draw into any text field, edit, or note - not even when asked "what can I do". Usage help is SPOKEN: answer it in "say" (under 10 words, e.g. "Circle anything, or speak - I'll change it") and change nothing. A note explains the user's content, never the system.
 STAY ON SUBJECT: "marked" lists the labels/ids the ink actually touched - the user's subject is there (or, when marked is empty, at drawing.nearest). Everything you say, do or edit must be about those items. NEVER bring in unmarked items, other list entries, or the screen's prominent buttons; if the subject is unclear, ask about the marked items, not about the screen.
 
 ANCHOR ON THE MARK: respond to what the drawing actually marks - the circled/crossed/underlined/touched flags, and the stroke's position in the screenshot. When no flags are set, drawing.nearest names the closest labeled thing to the stroke - that is almost certainly the subject. NEVER assume the user means the screen's main buttons or options just because they are prominent; the mark's location decides the subject.

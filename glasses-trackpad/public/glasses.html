@@ -2267,7 +2267,7 @@
         if (old && old.classList.contains('elnote')) old.remove();
         const n = document.createElement('div');
         n.className = 'elnote';
-        n.textContent = 'ⓘ ' + e.note;
+        n.textContent = 'ⓘ ' + String(e.note).slice(0, 160); // glasses display: notes stay glanceable
         el.insertAdjacentElement('afterend', n);
       }
       el.classList.add('circled');
