@@ -1217,7 +1217,19 @@
   function connect() {
     ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
     ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', role: 'display' }));
-    ws.onclose = () => { setStatus(false, 'server disconnected — retrying…'); setTimeout(connect, 1500); };
+    ws.onclose = () => {
+      setStatus(false, 'server disconnected — retrying…');
+      // a reply in flight is lost with the connection: say so NOW instead of
+      // leaving the ink glowing for the 30s fallback
+      if (pending || inkAwaiting) {
+        inkAwaiting = false;
+        pending = null;
+        clearTimeout(pendingTimer);
+        clearInk(true);
+        showBubble('connection dropped — draw it again', false, false);
+      }
+      setTimeout(connect, 1500);
+    };
     ws.onmessage = (ev) => {
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
@@ -1531,6 +1543,7 @@
   // the local circle rules below.
   let pending = null;      // { closed, hits: [{cmd, label, multi}] }
   let pendingTimer = null;
+  let slowTimer = null; // updates the thinking bubble when a reply is taking long
 
   function analyzeStroke(pts) {
     const L = strokeLength(pts);
@@ -2077,6 +2090,10 @@
         ? '🎤 “' + spokenWith.slice(0, 40) + '” + ✎ …'
         : 'interpreting your drawing…', true);
       clearTimeout(pendingTimer);
+      clearTimeout(slowTimer);
+      slowTimer = setTimeout(() => {
+        if (pending || inkAwaiting) showBubble('still thinking… (model is slow right now)', true);
+      }, 9000);
       pendingTimer = setTimeout(() => localInterpret(), 30000);
       const payload = {
         screen,
@@ -2330,6 +2347,7 @@
   function onAssistant(msg) {
     // a reply tagged with an older request id was superseded by a newer send
     if (typeof msg.seq === 'number' && msg.seq < interpretSeq) return;
+    clearTimeout(slowTimer);
     if (inkAwaiting) { inkAwaiting = false; clearInk(true); }
     if (!pending) {
       // the answer arrived after we gave up waiting: show it anyway
