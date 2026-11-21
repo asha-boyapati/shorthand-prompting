@@ -2350,7 +2350,15 @@
     clearTimeout(slowTimer);
     if (inkAwaiting) { inkAwaiting = false; clearInk(true); }
     if (!pending) {
-      // the answer arrived after we gave up waiting: show it anyway
+      // the answer arrived after we gave up waiting: show it anyway,
+      // INCLUDING an options menu - dropping alternatives here made slow
+      // replies look like nothing happened
+      const lateAlts = Array.isArray(msg.alternatives) ? msg.alternatives : [];
+      if (msg.ai && lateAlts.length >= 2) {
+        recordAssistant(msg.say);
+        showAlternatives(msg.say, lateAlts.slice(0, 3));
+        return;
+      }
       if (msg.ai && (msg.say || (msg.actions && msg.actions.length) || (msg.edits && msg.edits.length) || msg.state)) {
         recordAssistant(msg.say);
         showBubble(msg.say || '\u2026');
