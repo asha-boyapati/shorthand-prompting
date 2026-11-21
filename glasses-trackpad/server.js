@@ -409,6 +409,7 @@ function handleSTT(req, res) {
         const fd = new FormData();
         fd.append('file', new Blob([body], { type: ct }), 'speech.' + ext);
         fd.append('model', STT_MODELS[sttIdx]);
+        fd.append('language', 'en');
         r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
@@ -428,7 +429,26 @@ function handleSTT(req, res) {
         res.end(JSON.stringify({ error: String(reason).slice(0, 90) }));
         return;
       }
-      const j = await r.json();
+      let j = await r.json();
+      // some models return an EMPTY transcript for clips another model hears
+      // fine (iPhone mp4 fragments) - retry the same clip once on the next
+      // model before reporting silence.
+      if (!(j.text || '').trim() && sttIdx < STT_MODELS.length - 1) {
+        console.log(`[stt] ${STT_MODELS[sttIdx]} heard nothing - retrying clip on "${STT_MODELS[sttIdx + 1]}"`);
+        const fd2 = new FormData();
+        fd2.append('file', new Blob([body], { type: ct }), 'speech.' + ext);
+        fd2.append('model', STT_MODELS[sttIdx + 1]);
+        fd2.append('language', 'en');
+        const r2 = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+          body: fd2,
+        }).catch(() => null);
+        if (r2 && r2.ok) {
+          const j2 = await r2.json().catch(() => ({}));
+          if ((j2.text || '').trim()) j = j2;
+        }
+      }
       // transcription isn't token-priced here: flat, conservative 1c per clip
       spentUSD += 0.01;
       try { fs.writeFileSync(USAGE_FILE, JSON.stringify({ spentUSD })); } catch {}
