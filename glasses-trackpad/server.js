@@ -54,11 +54,12 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 40; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 41; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
 The user wears glasses with a small HUD and draws strokes on a wrist trackpad. You receive JSON describing:
+- directive: when present, a BINDING instruction the system computed for this exact input. Follow it to the letter, over every other rule and reading.
 - screen: which app screen is showing
 - task: one line of plain language saying what the user is DOING right now and where they are in it (e.g. 'Cooking carbonara: gathering ingredients, 2/6 checked'). GROUND EVERYTHING IN THIS: the mark and the words are about this activity, at this point in it - not about the screen as an abstract picture.
 - history: the last few exchanges in this session, oldest first, as {user, ai} pairs ('user' = what they drew/said, 'ai' = what you answered). Use it to resolve follow-ups: "yes"/"no" answer YOUR latest question; "it"/"this"/"that one" and a repeated gesture refer to what was just discussed; when the user circles the same thing again, go DEEPER or try a different reading instead of repeating your last answer.
@@ -601,6 +602,17 @@ function onConnection(ws) {
         if (pl.speech) bits.push(`speech="${pl.speech}"`);
         if (pl.imageCrop) bits.push('crop=yes');
         console.log(`[interpret] ${bits.join(' ')}`);
+      }
+      // Poster marks are the demo-critical path: compute a binding directive
+      // so the model cannot wander off into info-mode or the wrong target.
+      {
+        const pl = msg.payload || {};
+        if (pl.screen === 'poster' && Array.isArray(pl.marked) && pl.marked.length) {
+          const parts = pl.marked.join(', ');
+          pl.directive = pl.speech
+            ? `The user marked [${parts}] on their poster draft and said "${pl.speech}". Apply exactly that change to exactly those part(s) NOW, via "state": {"poster": {...partial diff...}}, confidence "high", "say" naming what changed. No questions, no information.`
+            : `The user circled [${parts}] on their poster draft. They want that aspect CHANGED. Reply with "say": "Did you mean:" and 2-3 "alternatives", each a DIFFERENT concrete design change to exactly [${parts}] (reword it / change its value / change its color or prominence / remove it), and EACH alternative MUST carry its own "state": {"poster": {...partial diff...}} so picking it visibly changes the draft. No information, no definitions, no option that keeps things as they are.`;
+        }
       }
       interpretGesture(msg.payload || {})
         .then((r) => {
