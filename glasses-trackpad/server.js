@@ -243,7 +243,7 @@ async function interpretWithOpenAI(payload) {
         ...(p.cropDataUrl ? [{ type: 'image_url', image_url: { url: p.cropDataUrl } }] : []),
       ]
     : p.json;
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await fetch((process.env.OPENAI_BASE_URL || 'https://api.openai.com') + '/v1/chat/completions', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -430,7 +430,7 @@ function handleSTT(req, res) {
         fd.append('model', STT_MODELS[sttIdx]);
         fd.append('language', 'en');
         fd.append('prompt', 'Smart-glasses assistant commands, e.g.: design a poster, make it vegetarian, what is this, go home, next step, repeat that, an event, bolder, fix this color.');
-        r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        r = await fetch((process.env.OPENAI_BASE_URL || 'https://api.openai.com') + '/v1/audio/transcriptions', {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
           body: fd,
@@ -459,7 +459,7 @@ function handleSTT(req, res) {
         fd2.append('file', new Blob([body], { type: ct }), 'speech.' + ext);
         fd2.append('model', STT_MODELS[sttIdx + 1]);
         fd2.append('language', 'en');
-        const r2 = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        const r2 = await fetch((process.env.OPENAI_BASE_URL || 'https://api.openai.com') + '/v1/audio/transcriptions', {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
           body: fd2,
