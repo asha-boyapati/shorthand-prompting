@@ -310,6 +310,16 @@ const handleRequest = (req, res) => {
     return;
   }
 
+  // the screenshot library is served locally so captures never depend on a CDN
+  if (url === '/html2canvas.min.js') {
+    fs.readFile(path.join(PUBLIC_DIR, 'html2canvas.min.js'), (err, data) => {
+      if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('missing'); return; }
+      res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'max-age=86400' });
+      res.end(data);
+    });
+    return;
+  }
+
   const file = ROUTES[url];
   if (!file) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });

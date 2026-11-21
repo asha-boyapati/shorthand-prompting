@@ -324,7 +324,24 @@
 </head>
 <body>
 
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="/html2canvas.min.js"></script>
+<script>
+  // local copy first; CDN only as a fallback, and a loud warning if neither
+  // loads - without this library every drawing goes to the model blind.
+  if (!window.html2canvas) {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+    document.head.appendChild(s);
+  }
+  window.addEventListener('load', () => {
+    if (!window.html2canvas) {
+      const d = document.createElement('div');
+      d.textContent = '⚠ screenshot library failed to load — drawings will be interpreted without the image';
+      d.style.cssText = 'position:fixed;top:4px;left:50%;transform:translateX(-50%);background:#5b1f1f;color:#ffd7d7;padding:6px 14px;border-radius:8px;font:13px system-ui;z-index:99';
+      document.body.appendChild(d);
+    }
+  });
+</script>
 
 <div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">g5</span>
   <button id="audioBtn" title="glasses audio"
