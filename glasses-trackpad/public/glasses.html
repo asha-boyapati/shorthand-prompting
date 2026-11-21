@@ -1409,7 +1409,7 @@
   let fadeTimer = null;
   let strokeIdleTimer = null;
   let inkAwaiting = false; // a drawing was sent; its ink stays until the reply
-  let staleReplies = 0;    // replies to superseded drawings, dropped on arrival
+  let interpretSeq = 0;    // id of the newest request sent; the server echoes it on the reply
   let drawGen = 0;         // bumped on every stroke start to abandon stale captures
 
   function drawStrokes() {
@@ -1459,8 +1459,7 @@
       drawGen++;
       if (inkAwaiting) {
         // the previous lift was already sent - this stroke supersedes it:
-        // drop that reply when it arrives, keep the strokes, resend on lift
-        staleReplies++;
+        // its reply is outdated by seq once the next lift sends, strokes stay
         inkAwaiting = false;
         pending = null;
         clearTimeout(pendingTimer);
@@ -1943,6 +1942,7 @@
       if (image) payload.image = image;
       if (strokes.length) clearInk(true);
       if (ws && ws.readyState === WebSocket.OPEN) {
+        payload.seq = ++interpretSeq;
         ws.send(JSON.stringify({ type: 'interpret', payload }));
       } else {
         localInterpret();
@@ -2100,6 +2100,7 @@
         if (crop) payload.imageCrop = crop;
         if (ws && ws.readyState === WebSocket.OPEN) {
           inkAwaiting = true; // ink keeps glowing until the reply lands
+          payload.seq = ++interpretSeq;
           ws.send(JSON.stringify({ type: 'interpret', payload }));
         } else {
           clearInk(true);
@@ -2307,7 +2308,8 @@
   }
 
   function onAssistant(msg) {
-    if (staleReplies > 0) { staleReplies--; return; } // reply to a superseded drawing
+    // a reply tagged with an older request id was superseded by a newer send
+    if (typeof msg.seq === 'number' && msg.seq < interpretSeq) return;
     if (inkAwaiting) { inkAwaiting = false; clearInk(true); }
     if (!pending) {
       // the answer arrived after we gave up waiting: show it anyway

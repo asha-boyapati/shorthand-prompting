@@ -547,13 +547,17 @@ function onConnection(ws) {
 
     // Displays ask the server to interpret a drawing with Claude.
     if (client.role === 'display' && msg.type === 'interpret') {
+      // request id: echoed on the reply so the glasses can match replies to
+      // requests and drop ones a newer drawing superseded
+      const seq = msg.payload && msg.payload.seq;
+      if (msg.payload) delete msg.payload.seq;
       if (!budgetLeft()) {
         console.log('[budget] over limit - refusing AI call');
-        sendTo('display', { type: 'assistant', ai: false });
+        sendTo('display', { type: 'assistant', ai: false, seq });
         return;
       }
       if (!aiEnabled) {
-        sendTo('display', { type: 'assistant', ai: false });
+        sendTo('display', { type: 'assistant', ai: false, seq });
         return;
       }
       const tag = USE_OPENAI ? 'openai' : 'claude';
@@ -574,7 +578,7 @@ function onConnection(ws) {
         .then((r) => {
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
           console.log(`[${tag}] (${r.confidence}) "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
-          sendTo('display', { type: 'assistant', ai: true, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits, lines: r.lines, ideas: r.ideas, alternatives: r.alternatives, state: r.state });
+          sendTo('display', { type: 'assistant', ai: true, seq, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits, lines: r.lines, ideas: r.ideas, alternatives: r.alternatives, state: r.state });
           sendTo('trackpad', { type: 'ack', action: r.say, hit: r.actions.length > 0 || r.edits.length > 0 });
         })
         .catch((err) => {
@@ -588,7 +592,7 @@ function onConnection(ws) {
           } else {
             console.log(`[${tag}] interpretation failed:`, err.message);
           }
-          sendTo('display', { type: 'assistant', ai: false });
+          sendTo('display', { type: 'assistant', ai: false, seq });
         });
       return;
     }
