@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 46; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 47; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -588,6 +588,38 @@ function onConnection(ws) {
       if (!aiEnabled) {
         sendTo('display', { type: 'assistant', ai: false, seq });
         return;
+      }
+      // DEMO-CRITICAL: a design request renders a poster draft DETERMINISTICALLY,
+      // server-side, with no model call - so it can never loop, ask endless
+      // questions, or build the wrong kind of task. The model only handles the
+      // tweaks afterward (circling), which is where the value is.
+      {
+        const pl = msg.payload || {};
+        const sp = String(pl.speech || '').trim();
+        const onPoster = pl.screen === 'poster';
+        const designRe = /\b(design|make|create|build)\b.*\b(poster|flyer|invite|invitation|cover|sign|card)\b|\b(poster|flyer|invite|invitation|cover|sign)\b/i;
+        if (!onPoster && sp && designRe.test(sp)) {
+          const kindM = sp.match(/\b(poster|flyer|invite|invitation|cover|sign|card)\b/i);
+          const kind = kindM ? kindM[1].toLowerCase().replace('invitation', 'invite') : 'poster';
+          // pull a topic out of "... for a job fair" / "... about X"
+          const topicM = sp.match(/\b(?:for|about|for an?|on)\s+(?:a|an|the|my|our)?\s*([a-z0-9][a-z0-9 '&-]{1,40})/i);
+          const topic = topicM ? topicM[1].trim().replace(/\s+/g, ' ') : '';
+          const title = topic ? topic.replace(/\b\w/g, (c) => c.toUpperCase()) : 'Your Event';
+          const poster = {
+            kind, title: title.slice(0, 40), subtitle: 'A can’t-miss event',
+            accent: '#FF4D6D', bg: '#101826', ink: '#F2F5F9',
+            sections: [
+              { head: 'When', body: 'Sat, June 12 · 3 PM' },
+              { head: 'Where', body: 'Main Hall' },
+              { head: 'Bring', body: 'Friends — and good energy' },
+            ],
+            footer: 'Free · all welcome',
+          };
+          console.log(`[interpret] screen=${pl.screen} speech="${sp}" -> DETERMINISTIC ${kind} draft "${poster.title}"`);
+          sendTo('display', { type: 'assistant', ai: true, seq, say: 'Here is your ' + kind, confidence: 'high', actions: [], edits: [], state: { poster } });
+          sendTo('trackpad', { type: 'ack', action: 'drafted a ' + kind, hit: true });
+          return;
+        }
       }
       const tag = USE_OPENAI ? 'openai' : 'claude';
       const hasImg = !!(msg.payload && msg.payload.image);
