@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 47; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 48; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -664,6 +664,36 @@ function onConnection(ws) {
       }
       interpretGesture(msg.payload || {})
         .then((r) => {
+          // SAFETY NET for poster circles: if the model returned nothing
+          // useful for a circle on a poster region, synthesize a working
+          // options menu server-side so the gesture is never a dead end.
+          const pl = msg.payload || {};
+          const noResult = (!r.alternatives || r.alternatives.length < 2) &&
+            (!r.actions || !r.actions.length) && (!r.edits || !r.edits.length) && !r.state;
+          if (pl.screen === 'poster' && Array.isArray(pl.marked) && pl.marked.length && !pl.speech && noResult) {
+            const m = pl.marked.join(' ');
+            let alts;
+            if (/accent|bg|color/i.test(m)) {
+              alts = [
+                { label: 'Cool blue', state: { poster: { accent: '#2E6FDB' } } },
+                { label: 'Warm orange', state: { poster: { accent: '#E8734C' } } },
+                { label: 'Deep green', state: { poster: { accent: '#2F8F5B' } } },
+              ];
+            } else if (/title/i.test(m)) {
+              alts = [
+                { label: 'Punchier title', state: { poster: { title: 'Don’t Miss It' } } },
+                { label: 'Add a subtitle', state: { poster: { subtitle: 'You’re invited' } } },
+              ];
+            } else {
+              alts = [
+                { label: 'Make this bolder', state: { poster: { accent: '#FF4D6D' } } },
+                { label: 'Soften the look', state: { poster: { accent: '#6C8EBF', bg: '#1A2230' } } },
+                { label: 'Brighten background', state: { poster: { bg: '#15203A' } } },
+              ];
+            }
+            console.log(`[${tag}] circle produced no model result - using deterministic fallback menu for [${m}]`);
+            r = { say: 'Did you mean:', confidence: 'normal', actions: [], edits: [], lines: [], ideas: [], alternatives: alts, state: undefined };
+          }
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
           console.log(`[${tag}] (${r.confidence}) "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
           sendTo('display', { type: 'assistant', ai: true, seq, say: r.say, confidence: r.confidence, actions: r.actions, edits: r.edits, lines: r.lines, ideas: r.ideas, alternatives: r.alternatives, state: r.state });
