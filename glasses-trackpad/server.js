@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 53; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 54; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -672,15 +672,19 @@ function onConnection(ws) {
           const sec = secM ? secs[+secM[1]] : null;
           const isTime = sec && /when|date|time/i.test(sec.head) && /\d\s*(AM|PM)/i.test(sec.body || '');
           // WRITING a word on the poster = ADD content, not edit a region.
-          // The strokes look like letters, not one enclosing loop.
-          const looksWritten = pl.drawing.looksLikeWriting ||
-            (Array.isArray(pl.drawing.strokes) && pl.drawing.strokes.length >= 2 &&
-             !pl.drawing.strokes.some((s) => s.closed && s.length > 150));
+          // 3+ strokes is a written word (letters), not a single-loop circle;
+          // writing in empty space (marked none) with 2+ strokes is writing too.
+          const nStrokes = Array.isArray(pl.drawing.strokes) ? pl.drawing.strokes.length : 0;
+          const looksWritten = pl.drawing.looksLikeWriting || nStrokes >= 3 || (!parts && nStrokes >= 2);
           const curSecsJson = JSON.stringify(secs);
           if (pl.speech && parts) {
             pl.directive = `The user marked [${parts}] on their poster draft and said "${pl.speech}". Apply exactly that change to exactly those part(s) NOW, via "state": {"poster": {...partial diff...}}, confidence "high", "say" naming what changed. No questions, no information.`;
           } else if (looksWritten) {
-            pl.directive = `The user HANDWROTE a word on their poster (read it from the close-up image). This ADDS content - it is NOT a circle. If the word names a section people expect on a poster ("who", "host", "cost", "price", "rsvp", "contact", "menu", "age", "dress code", "parking"), ADD a new section for it: return "state": {"poster": {"sections": <the current sections ${curSecsJson} with ONE new {"head","body"} appended, head = a tidy title for the word, body = a sensible placeholder>}}, confidence "high", "say" = "Added <head>". If instead the word is a correction to an existing field, apply it there. Never just describe or define the word.`;
+            console.log(`[${tag}] poster handwriting (${nStrokes} strokes) -> ADD/APPLY directive`);
+            pl.directive = `The user HANDWROTE a word on their poster. READ it from the close-up image (it may be shorthand: "bday"=birthday, "rsvp", "byob", "info"). You MUST act on it - NEVER ask a question, NEVER return empty, NEVER say "do you want to change anything". confidence "high". Decide:
+ (a) If it describes the EVENT or theme (e.g. "bday"/"birthday", "charity", "gala", "reunion", "wedding"), work it into the TITLE and subtitle: return "state": {"poster": {"title":"<new title using it, e.g. Birthday Party>","subtitle":"<fitting subtitle>"}}, "say":"Made it a <thing>".
+ (b) If it names a detail section ("who","host","cost","price","rsvp","contact","menu","age","dress code","parking","date","time"), ADD it: "state": {"poster": {"sections": <the current sections ${curSecsJson} with ONE new {"head","body"} appended; head = tidy title, body = sensible placeholder>}}, "say":"Added <head>".
+ Pick (a) or (b) and return the state. Always change the poster.`;
           } else if (isTime) {
             pl.directive = `The user circled the time ("${sec.body}") on their poster. Offer 3 "alternatives" that each set a DIFFERENT concrete time - some earlier, some later than now (e.g. labels like "Earlier - 1 PM", "Later - 6 PM", "Later - 8 PM"). Each alternative MUST carry "state": {"poster": {"sections": [THE FULL sections array with ONLY this section's body changed to the new time, keeping its date]}}. "say": "Did you mean:". No vague options, no keeping the current time.`;
           } else if (parts) {
