@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 44; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 45; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -612,6 +612,15 @@ function onConnection(ws) {
           pl.directive = pl.speech
             ? `The user marked [${parts}] on their poster draft and said "${pl.speech}". Apply exactly that change to exactly those part(s) NOW, via "state": {"poster": {...partial diff...}}, confidence "high", "say" naming what changed. No questions, no information.`
             : `The user circled [${parts}] on their poster draft. They want that aspect CHANGED. Reply with "say": "Did you mean:" and 2-3 "alternatives", each a DIFFERENT concrete design change to exactly [${parts}] (reword it / change its value / change its color or prominence / remove it), and EACH alternative MUST carry its own "state": {"poster": {...partial diff...}} so picking it visibly changes the draft. No information, no definitions, no option that keeps things as they are.`;
+        }
+        // NEVER loop on setup questions: any design/poster request, or any
+        // answer given on the custom/setup screen, must produce the rendered
+        // draft immediately. Forbid asking.
+        const txt = String(pl.speech || '').toLowerCase();
+        const onSetup = pl.screen === 'custom' || pl.screen === 'home';
+        const isDesign = /\b(poster|flyer|invite|invitation|cover|sign|design)\b/.test(txt);
+        if (onSetup && (isDesign || pl.screen === 'custom')) {
+          pl.directive = `Build the poster NOW as "state": {"poster": {"kind":"poster","title":"<short>","subtitle":"<short>","accent":"#hex","bg":"#hex","ink":"#hex","sections":[{"head":"When","body":"<placeholder>"},{"head":"Where","body":"<placeholder>"},{"head":"Bring","body":"<placeholder>"}],"footer":"<short>"}} using anything the user said ("${pl.speech || ''}") as the theme, inventing sensible placeholders for the rest. confidence "high", "say" under 8 words. ABSOLUTELY DO NOT ask a question or use mode "ask" - render the draft.`;
         }
       }
       interpretGesture(msg.payload || {})
