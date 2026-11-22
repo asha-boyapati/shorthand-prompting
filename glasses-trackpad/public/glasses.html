@@ -343,7 +343,7 @@
   });
 </script>
 
-<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 45</span>
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 46</span>
   <button id="audioBtn" title="glasses audio"
     style="background:none;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 10px;">&#128266; on</button>
 </div>
@@ -549,6 +549,15 @@
   function customSpeakStep() {
     const st = cu.steps[cu.step];
     if (st) speak(st.text);
+  }
+
+  // counts answers given while a setup question is showing, so the server can
+  // force the result after 2 even if the model keeps re-asking
+  let setupAnswerCount = 0;
+  function bumpSetupAnswers() {
+    if (screen === 'custom' && cu.mode === 'ask' && cu.question) setupAnswerCount++;
+    else setupAnswerCount = 0;
+    return setupAnswerCount;
   }
 
   // --- poster: a live visual draft the model designs and the user tweaks
@@ -1974,6 +1983,7 @@
       state: taskState(),
       task: taskBrief(),
       history: convo.slice(-6),
+      setupAnswers: bumpSetupAnswers(),
       extraCommands: extraCmds(),
       elements: [...card.querySelectorAll('[data-action]')].map((el) => ({
         label: el.dataset.action, cmd: el.dataset.cmd,
@@ -2140,6 +2150,7 @@
         marked: markedList,
         task: taskBrief(),
         history: convo.slice(-6),
+        setupAnswers: bumpSetupAnswers(),
       };
       // screenshot the HUD (strokes included) so the model can see the drawing
       const gen = drawGen;

@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 45; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 46; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -613,14 +613,21 @@ function onConnection(ws) {
             ? `The user marked [${parts}] on their poster draft and said "${pl.speech}". Apply exactly that change to exactly those part(s) NOW, via "state": {"poster": {...partial diff...}}, confidence "high", "say" naming what changed. No questions, no information.`
             : `The user circled [${parts}] on their poster draft. They want that aspect CHANGED. Reply with "say": "Did you mean:" and 2-3 "alternatives", each a DIFFERENT concrete design change to exactly [${parts}] (reword it / change its value / change its color or prominence / remove it), and EACH alternative MUST carry its own "state": {"poster": {...partial diff...}} so picking it visibly changes the draft. No information, no definitions, no option that keeps things as they are.`;
         }
-        // NEVER loop on setup questions: any design/poster request, or any
-        // answer given on the custom/setup screen, must produce the rendered
-        // draft immediately. Forbid asking.
-        const txt = String(pl.speech || '').toLowerCase();
-        const onSetup = pl.screen === 'custom' || pl.screen === 'home';
-        const isDesign = /\b(poster|flyer|invite|invitation|cover|sign|design)\b/.test(txt);
-        if (onSetup && (isDesign || pl.screen === 'custom')) {
-          pl.directive = `Build the poster NOW as "state": {"poster": {"kind":"poster","title":"<short>","subtitle":"<short>","accent":"#hex","bg":"#hex","ink":"#hex","sections":[{"head":"When","body":"<placeholder>"},{"head":"Where","body":"<placeholder>"},{"head":"Bring","body":"<placeholder>"}],"footer":"<short>"}} using anything the user said ("${pl.speech || ''}") as the theme, inventing sensible placeholders for the rest. confidence "high", "say" under 8 words. ABSOLUTELY DO NOT ask a question or use mode "ask" - render the draft.`;
+        // THE SETUP LOOP BUG: when the user ANSWERS a setup question, the
+        // model must ADVANCE - record the answer and ask the NEXT (different)
+        // question, or produce the result. It must never repeat a question.
+        const cu = (pl.state && pl.state.custom) || {};
+        const answering = cu.mode === 'ask' && cu.question &&
+          (pl.speech || (pl.drawing && pl.drawing.strokes && pl.drawing.strokes.length) || pl.marked);
+        if (answering) {
+          const asked = Array.isArray(cu.asked) ? cu.asked.map((a) => a && a.q).filter(Boolean) : [];
+          const theAnswer = pl.speech ? `"${pl.speech}"` : 'the handwriting shown in the image';
+          // client counts answers independently, so a model that never grows
+          // asked[] still terminates
+          const nAnswered = Math.max(asked.length + 1, pl.setupAnswers || 1);
+          pl.directive = nAnswered >= 2
+            ? `The user is in poster setup. The current question is "${cu.question}" and their answer is ${theAnswer}. They have now answered enough. PRODUCE THE POSTER DRAFT NOW as "state": {"poster": {"kind":"poster","title":"<from their answers>","subtitle":"<short>","accent":"#hex","bg":"#hex","ink":"#hex","sections":[{"head":"When","body":"<placeholder>"},{"head":"Where","body":"<placeholder>"},{"head":"Bring","body":"<placeholder>"}],"footer":"<short>"}}, confidence "high", "say" under 8 words. DO NOT ask another question. DO NOT return mode "ask". DO NOT repeat "${cu.question}".`
+            : `The user is in poster setup. The current question is "${cu.question}" and their answer is ${theAnswer}. RECORD this answer, then ask ONE DIFFERENT next question via "state": {"custom": {"mode":"ask","question":"<a NEW question, not '${cu.question}' and not any of ${JSON.stringify(asked)}>","options":["<opt>","<opt>","<opt>"],"asked":[<every prior {q,a} PLUS {"q":"${cu.question}","a":<their answer>}>]}}. You MUST move to a different question - NEVER return "${cu.question}" again, NEVER return empty state.`;
         }
       }
       interpretGesture(msg.payload || {})
