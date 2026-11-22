@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 50; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 51; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -665,6 +665,28 @@ function onConnection(ws) {
       // so the model cannot wander off into info-mode or the wrong target.
       {
         const pl = msg.payload || {};
+        // DETERMINISTIC TIME OPTIONS: circling the When/time section (no speech)
+        // always offers specific earlier/later times parsed from the current
+        // one - never leaves it to the model.
+        if (pl.screen === 'poster' && !pl.speech && Array.isArray(pl.marked) && pl.marked.length) {
+          const secs = (pl.state && pl.state.poster && Array.isArray(pl.state.poster.sections)) ? pl.state.poster.sections : [];
+          const secM = pl.marked.join(' ').match(/poster-sec-(\d+)/);
+          const idx = secM ? +secM[1] : -1;
+          const sec = idx >= 0 ? secs[idx] : null;
+          const tM = sec && String(sec.body).match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+          if (sec && /when|date|time/i.test(sec.head) && tM) {
+            let h = +tM[1] % 12; if (/pm/i.test(tM[3])) h += 12; // 24h
+            const datePart = String(sec.body).replace(/[·|-]?\s*\d{1,2}(?::\d{2})?\s*(AM|PM).*$/i, '').replace(/[·|,\s]+$/, '').trim();
+            const fmt = (hh) => { const ap = hh >= 12 ? 'PM' : 'AM'; let d = hh % 12; if (d === 0) d = 12; return d + ' ' + ap; };
+            const mk = (hh, label) => ({ label: label + ' — ' + fmt(hh), state: { poster: { sections: secs.map((s, i) => i === idx ? { head: s.head, body: (datePart ? datePart + ' · ' : '') + fmt(hh) } : { head: s.head, body: s.body }) } } });
+            const earlier = Math.max(8, h - 3), later1 = Math.min(21, h + 2), later2 = Math.min(22, h + 4);
+            const alts = [ mk(earlier, 'Earlier'), mk(later1, 'Later'), mk(later2, 'Even later') ];
+            console.log(`[${tag}] circle on time "${sec.body}" -> deterministic time options`);
+            sendTo('display', { type: 'assistant', ai: true, seq, say: 'Did you mean:', confidence: 'normal', actions: [], edits: [], alternatives: alts });
+            sendTo('trackpad', { type: 'ack', action: 'time options', hit: true });
+            return;
+          }
+        }
         if (pl.screen === 'poster' && Array.isArray(pl.marked) && pl.marked.length) {
           const parts = pl.marked.join(', ');
           pl.directive = pl.speech
