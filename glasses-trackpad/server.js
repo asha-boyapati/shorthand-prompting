@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 49; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 50; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -594,28 +594,54 @@ function onConnection(ws) {
       // questions, or build the wrong kind of task. The model only handles the
       // tweaks afterward (circling), which is where the value is.
       {
+        // DETERMINISTIC POSTER SETUP - fully server-controlled so it can
+        // never loop: ask 2 fixed questions, then render. The model is never
+        // involved in the setup flow.
         const pl = msg.payload || {};
         const sp = String(pl.speech || '').trim();
         const onPoster = pl.screen === 'poster';
-        const designRe = /\b(design|make|create|build)\b.*\b(poster|flyer|invite|invitation|cover|sign|card)\b|\b(poster|flyer|invite|invitation|cover|sign)\b/i;
-        if (!onPoster && sp && designRe.test(sp)) {
+        const cu = (pl.state && pl.state.custom) || {};
+        const inSetup = pl.screen === 'custom' && cu.mode === 'ask' && cu.question && /^setup:/.test(cu.title || '');
+        const designRe = /\b(design|make|create|build|want)\b.*\b(poster|flyer|invite|invitation|cover|sign|card)\b|\b(poster|flyer|invite|invitation|cover|sign)\b/i;
+        const titleCase = (s) => String(s || '').replace(/^\s*(a|an|the|my|our)\s+/i, '').trim().replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 40);
+
+        // STEP 0 - a design request from home/elsewhere starts the setup
+        if (!onPoster && !inSetup && sp && designRe.test(sp)) {
           const kindM = sp.match(/\b(poster|flyer|invite|invitation|cover|sign|card)\b/i);
           const kind = kindM ? kindM[1].toLowerCase().replace('invitation', 'invite') : 'poster';
-          // pull a topic out of "... for a job fair" / "... about X"
-          const topicM = sp.match(/\b(?:for|about|for an?|on)\s+(?:a|an|the|my|our)?\s*([a-z0-9][a-z0-9 '&-]{1,40})/i);
-          const topic = topicM ? topicM[1].trim().replace(/\s+/g, ' ') : '';
-          const title = topic ? topic.replace(/\b\w/g, (c) => c.toUpperCase()) : 'Your Event';
-          const poster = {
-            kind, title: title.slice(0, 40), subtitle: 'A can’t-miss event',
-            accent: '#FF4D6D', bg: '#101826', ink: '#F2F5F9',
-            sections: [
-              { head: 'When', body: 'Sat, June 12 · 3 PM' },
-              { head: 'Where', body: 'Main Hall' },
-              { head: 'Bring', body: 'Friends — and good energy' },
-            ],
-            footer: 'Free · all welcome',
-          };
-          console.log(`[interpret] screen=${pl.screen} speech="${sp}" -> DETERMINISTIC ${kind} draft "${poster.title}"`);
+          console.log(`[interpret] "${sp}" -> start poster setup (Q1)`);
+          sendTo('display', { type: 'assistant', ai: true, seq, say: 'What is it for?', confidence: 'high', actions: [], edits: [],
+            state: { custom: { title: 'setup:' + kind, chip: kind, mode: 'ask', question: 'What is it for?',
+              options: ['A party', 'A job fair', 'A fundraiser'], asked: [] } } });
+          sendTo('trackpad', { type: 'ack', action: 'setup', hit: true });
+          return;
+        }
+        // STEP 1 / 2 - an answer while in setup
+        if (inSetup) {
+          const kind = (cu.chip || 'poster');
+          const asked = Array.isArray(cu.asked) ? cu.asked.slice() : [];
+          const answer = sp || 'it'; // handwriting answers arrive without text
+          if (asked.length === 0) {
+            // answered Q1 (what it's for) -> ask Q2 (style)
+            console.log(`[interpret] setup Q1 answered "${answer}" -> Q2 (style)`);
+            sendTo('display', { type: 'assistant', ai: true, seq, say: 'What style?', confidence: 'high', actions: [], edits: [],
+              state: { custom: { title: 'setup:' + kind, chip: kind, mode: 'ask', question: 'What style?',
+                options: ['Bold', 'Minimal', 'Playful'], asked: [{ q: 'What is it for?', a: answer }] } } });
+            sendTo('trackpad', { type: 'ack', action: 'style?', hit: true });
+            return;
+          }
+          // answered Q2 (style) -> RENDER the poster from both answers
+          const topic = asked[0] && asked[0].a || '';
+          const title = titleCase(topic) || 'Your Event';
+          const style = answer.toLowerCase();
+          const theme = /bold/.test(style) ? { accent: '#FF3B5C', bg: '#0C1020', ink: '#FFFFFF', sub: 'Big night. Be there.' }
+            : /minimal/.test(style) ? { accent: '#3B4252', bg: '#FAFAF5', ink: '#1A1A1A', sub: 'Simple. Clear. Done.' }
+            : /playful/.test(style) ? { accent: '#FF7AC6', bg: '#FFF3E0', ink: '#1C2130', sub: 'Come have some fun!' }
+            : { accent: '#FF4D6D', bg: '#101826', ink: '#F2F5F9', sub: 'A can’t-miss event' };
+          const poster = { kind, title, subtitle: theme.sub, accent: theme.accent, bg: theme.bg, ink: theme.ink,
+            sections: [ { head: 'When', body: 'Sat, June 12 · 3 PM' }, { head: 'Where', body: 'Main Hall' }, { head: 'Bring', body: 'Friends — and good energy' } ],
+            footer: 'Free · all welcome' };
+          console.log(`[interpret] setup Q2 answered "${answer}" -> RENDER ${kind} "${title}" (${style})`);
           sendTo('display', { type: 'assistant', ai: true, seq, say: 'Here is your ' + kind, confidence: 'high', actions: [], edits: [], state: { poster } });
           sendTo('trackpad', { type: 'ack', action: 'drafted a ' + kind, hit: true });
           return;
