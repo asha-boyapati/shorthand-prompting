@@ -343,7 +343,7 @@
   });
 </script>
 
-<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 43</span>
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 44</span>
   <button id="audioBtn" title="glasses audio"
     style="background:none;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 10px;">&#128266; on</button>
 </div>
@@ -1433,6 +1433,7 @@
   // an arrow, or a question mark reads as one gesture). Interpretation
   // fires after a short pause in drawing.
   const STROKE_FIRE_MS = 200; // lift-to-send: just enough to batch the capture
+  const QUIET_FIRE_MS = 650;  // fallback: pen stopped moving but no 'end' arrived
   let strokes = [];   // completed strokes of the current drawing
   let stroke = [];    // stroke in progress
   let fadeTimer = null;
@@ -1512,21 +1513,29 @@
       cx = penX; cy = penY; // the cursor follows the pen
       renderCursor();
       drawStrokes();
+      // ROBUSTNESS: don't wait for the phone's 'end' signal (it gets swallowed
+      // on multi-stroke writing / stray touches). Whenever the pen goes QUIET
+      // for a moment, interpret what's on screen. A real 'end' just fires it
+      // sooner. This makes a missing 'end' harmless.
+      armQuietFire(QUIET_FIRE_MS);
     } else if (msg.phase === 'end') {
       if (stroke.length >= 3) strokes.push(stroke);
       stroke = [];
       drawStrokes();
-      clearTimeout(strokeIdleTimer);
-      // lift = send: every finger-up goes to the model almost immediately.
-      // If more strokes follow (writing a word), each lift re-sends the
-      // WHOLE drawing and the earlier in-flight reply is dropped as stale.
-      strokeIdleTimer = setTimeout(() => {
-        if (!speechHold) interpretStrokes();
-        // mic is open: the ink rides along with the words - but SAY so,
-        // a silently-held drawing looks dead
-        else showBubble('\u{1F3A4} + ✎ — finish talking and they go together', true);
-      }, STROKE_FIRE_MS);
+      armQuietFire(STROKE_FIRE_MS);
     }
+  }
+
+  // fire interpretation after `ms` of no pen activity; folds any in-progress
+  // stroke into the drawing first so nothing is lost without an 'end'
+  function armQuietFire(ms) {
+    clearTimeout(strokeIdleTimer);
+    strokeIdleTimer = setTimeout(() => {
+      if (stroke.length >= 3) { strokes.push(stroke); stroke = []; drawStrokes(); }
+      if (!strokes.length) return;
+      if (!speechHold) interpretStrokes();
+      else showBubble('\u{1F3A4} + ✎ — finish talking and they go together', true);
+    }, ms);
   }
 
   function strokeLength(pts) {
