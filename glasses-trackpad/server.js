@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 48; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 49; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -672,6 +672,10 @@ function onConnection(ws) {
             (!r.actions || !r.actions.length) && (!r.edits || !r.edits.length) && !r.state;
           if (pl.screen === 'poster' && Array.isArray(pl.marked) && pl.marked.length && !pl.speech && noResult) {
             const m = pl.marked.join(' ');
+            const curSecs = (pl.state && pl.state.poster && Array.isArray(pl.state.poster.sections)) ? pl.state.poster.sections : [];
+            // rebuild the sections array with ONE section's body replaced
+            const withSec = (idx, body) => ({ poster: { sections: curSecs.map((s, i) => i === idx ? { head: s.head, body } : { head: s.head, body: s.body }) } });
+            const secM = m.match(/poster-sec-(\d+)/);
             let alts;
             if (/accent|bg|color/i.test(m)) {
               alts = [
@@ -684,6 +688,28 @@ function onConnection(ws) {
                 { label: 'Punchier title', state: { poster: { title: 'Don’t Miss It' } } },
                 { label: 'Add a subtitle', state: { poster: { subtitle: 'You’re invited' } } },
               ];
+            } else if (secM && curSecs.length) {
+              const idx = +secM[1];
+              const head = (curSecs[idx] && curSecs[idx].head || '').toLowerCase();
+              if (/when|date|time/.test(head)) {
+                alts = [
+                  { label: 'Change to 7 PM', state: withSec(idx, 'Sat, June 12 · 7 PM') },
+                  { label: 'Make it a time range', state: withSec(idx, 'Sat, June 12 · 3–7 PM') },
+                  { label: 'Move to next weekend', state: withSec(idx, 'Sat, June 19 · 3 PM') },
+                ];
+              } else if (/where|place|location/.test(head)) {
+                alts = [
+                  { label: 'Change the venue', state: withSec(idx, 'Rooftop Terrace') },
+                  { label: 'Add an address', state: withSec(idx, 'Main Hall, 100 Center St') },
+                  { label: 'Make it online', state: withSec(idx, 'Online — link to follow') },
+                ];
+              } else {
+                alts = [
+                  { label: 'Reword this', state: withSec(idx, 'Updated details') },
+                  { label: 'Shorten it', state: withSec(idx, (curSecs[idx].body || '').split(/[,·—-]/)[0].trim() || 'Details') },
+                  { label: 'Remove this line', state: { poster: { sections: curSecs.filter((_, i) => i !== idx) } } },
+                ];
+              }
             } else {
               alts = [
                 { label: 'Make this bolder', state: { poster: { accent: '#FF4D6D' } } },

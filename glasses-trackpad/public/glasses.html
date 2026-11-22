@@ -343,7 +343,7 @@
   });
 </script>
 
-<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 48</span>
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 49</span>
   <button id="audioBtn" title="glasses audio"
     style="background:none;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 10px;">&#128266; on</button>
 </div>
@@ -1963,6 +1963,28 @@
       hideBubble(); showToast('\u{1F3A4} heard nothing');
       if (strokes.length) interpretStrokes();
       return;
+    }
+    // VOICE CONFIRMATION: when a suggestion is on screen, affirmatives and
+    // option numbers apply it INSTANTLY, client-side - no model round-trip to
+    // drop. "yes/yeah/sure/do it/the first one" = option 1; "one/two/three" or
+    // "first/second/third" = that option; "no/cancel/nope" = dismiss.
+    if (proposal && (!strokes.length || ink.classList.contains('fade'))) {
+      const a = text.trim().toLowerCase().replace(/[.!?,]/g, '');
+      const yes = /\b(yes|yeah|yep|yup|sure|ok|okay|do it|sounds good|go ahead|please|the first|first one)\b/.test(a);
+      const no = /\b(no|nope|nah|cancel|never ?mind|dismiss|stop)\b/.test(a);
+      const numWord = { one: 1, two: 2, three: 3, first: 1, second: 2, third: 3 };
+      let pick = null;
+      for (const w in numWord) if (new RegExp('\\b' + w + '\\b').test(a)) pick = numWord[w];
+      const digit = a.match(/\b([123])\b/); if (digit) pick = +digit[1];
+      if (proposal.options) {
+        if (pick) { chooseAlt(pick - 1); return; }
+        if (yes) { chooseAlt(0); return; }
+        if (no) { dismissAlternatives(); return; }
+      } else {
+        if (yes) { const p = proposal; proposal = null; clearTimeout(proposalTimer); applyAssistant(p.actions, p.edits, p.state, p.say); showBubble('✓ done'); sendAck('Confirmed', true); return; }
+        if (no) { proposal = null; clearTimeout(proposalTimer); hideBubble(); showToast('okay, cancelled'); return; }
+      }
+      // not a yes/no/number - fall through and treat as a fresh request
     }
     if (!(ws && ws.readyState === WebSocket.OPEN)) { hideBubble(); showToast('no server connection'); return; }
     if (strokes.length) {
