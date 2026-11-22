@@ -24,7 +24,7 @@ try {
 // --- hard spending budget --------------------------------------------------
 // Every AI call's token usage is priced and accumulated in .usage.json.
 // Once BUDGET_USD is reached the server refuses further AI calls for good.
-const BUDGET_USD = Number(process.env.BUDGET_USD || 100);
+const BUDGET_USD = Number(process.env.BUDGET_USD || 25);
 const USAGE_FILE = path.join(__dirname, '.usage.json');
 let spentUSD = 0;
 try { spentUSD = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')).spentUSD || 0; } catch {}
