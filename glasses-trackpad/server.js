@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 52; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 53; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -665,20 +665,25 @@ function onConnection(ws) {
       // so the model cannot wander off into info-mode or the wrong target.
       {
         const pl = msg.payload || {};
-        if (pl.screen === 'poster' && Array.isArray(pl.marked) && pl.marked.length) {
-          const parts = pl.marked.join(', ');
-          // is the circled section a time/date? tell the model to offer
-          // concrete earlier/later times (it generates them; the fallback
-          // below only covers a model that returns nothing)
+        if (pl.screen === 'poster' && pl.drawing) {
+          const parts = Array.isArray(pl.marked) ? pl.marked.join(', ') : '';
           const secs = (pl.state && pl.state.poster && Array.isArray(pl.state.poster.sections)) ? pl.state.poster.sections : [];
-          const secM = pl.marked.join(' ').match(/poster-sec-(\d+)/);
+          const secM = parts.match(/poster-sec-(\d+)/);
           const sec = secM ? secs[+secM[1]] : null;
           const isTime = sec && /when|date|time/i.test(sec.head) && /\d\s*(AM|PM)/i.test(sec.body || '');
-          if (pl.speech) {
+          // WRITING a word on the poster = ADD content, not edit a region.
+          // The strokes look like letters, not one enclosing loop.
+          const looksWritten = pl.drawing.looksLikeWriting ||
+            (Array.isArray(pl.drawing.strokes) && pl.drawing.strokes.length >= 2 &&
+             !pl.drawing.strokes.some((s) => s.closed && s.length > 150));
+          const curSecsJson = JSON.stringify(secs);
+          if (pl.speech && parts) {
             pl.directive = `The user marked [${parts}] on their poster draft and said "${pl.speech}". Apply exactly that change to exactly those part(s) NOW, via "state": {"poster": {...partial diff...}}, confidence "high", "say" naming what changed. No questions, no information.`;
+          } else if (looksWritten) {
+            pl.directive = `The user HANDWROTE a word on their poster (read it from the close-up image). This ADDS content - it is NOT a circle. If the word names a section people expect on a poster ("who", "host", "cost", "price", "rsvp", "contact", "menu", "age", "dress code", "parking"), ADD a new section for it: return "state": {"poster": {"sections": <the current sections ${curSecsJson} with ONE new {"head","body"} appended, head = a tidy title for the word, body = a sensible placeholder>}}, confidence "high", "say" = "Added <head>". If instead the word is a correction to an existing field, apply it there. Never just describe or define the word.`;
           } else if (isTime) {
             pl.directive = `The user circled the time ("${sec.body}") on their poster. Offer 3 "alternatives" that each set a DIFFERENT concrete time - some earlier, some later than now (e.g. labels like "Earlier - 1 PM", "Later - 6 PM", "Later - 8 PM"). Each alternative MUST carry "state": {"poster": {"sections": [THE FULL sections array with ONLY this section's body changed to the new time, keeping its date]}}. "say": "Did you mean:". No vague options, no keeping the current time.`;
-          } else {
+          } else if (parts) {
             pl.directive = `The user circled [${parts}] on their poster draft. They want that aspect CHANGED. Reply with "say": "Did you mean:" and 2-3 "alternatives", each a DIFFERENT concrete design change to exactly [${parts}] (reword it / change its value / change its color or prominence / remove it), and EACH alternative MUST carry its own "state": {"poster": {...partial diff...}} so picking it visibly changes the draft. No information, no definitions, no option that keeps things as they are.`;
           }
         }
