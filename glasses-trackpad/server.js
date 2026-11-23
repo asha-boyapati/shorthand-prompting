@@ -54,7 +54,10 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 56; // bump when INTERPRET_SYSTEM changes
+// An interactive gesture must never hang waiting on the model. Past this many
+// ms we abort the call and fall back to a visible, deterministic reply.
+const MODEL_TIMEOUT_MS = Number(process.env.MODEL_TIMEOUT_MS || 14000);
+const PROMPT_VERSION = 57; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -211,15 +214,25 @@ async function interpretWithClaude(payload) {
         { type: 'text', text: p.json },
       ]
     : p.json;
-  const response = await claude.beta.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 2000,
-    output_config: { effort: 'low' },
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
-    system: INTERPRET_SYSTEM,
-    messages: [{ role: 'user', content }],
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), MODEL_TIMEOUT_MS);
+  let response;
+  try {
+    response = await claude.beta.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 2000,
+      output_config: { effort: 'low' },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      system: INTERPRET_SYSTEM,
+      messages: [{ role: 'user', content }],
+    }, { signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === 'AbortError' || /aborted/i.test(e.message || '')) throw new Error(`model timeout after ${MODEL_TIMEOUT_MS}ms`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (response.stop_reason === 'refusal') {
     throw new Error('model declined the request');
   }
@@ -251,25 +264,38 @@ async function interpretWithOpenAI(payload) {
         ...(p.cropDataUrl ? [{ type: 'image_url', image_url: { url: p.cropDataUrl } }] : []),
       ]
     : p.json;
-  const res = await fetch((process.env.OPENAI_BASE_URL || 'https://api.openai.com') + '/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: 'Bearer ' + process.env.OPENAI_API_KEY,
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODELS[openaiIdx],
-      // gpt-5 family are reasoning models: keep thinking short so answers
-      // come back fast enough for an interactive gesture loop
-      ...(OPENAI_MODELS[openaiIdx].startsWith('gpt-5') ? { reasoning_effort: 'low' } : {}),
-      max_completion_tokens: 2000,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: INTERPRET_SYSTEM },
-        { role: 'user', content: userContent },
-      ],
-    }),
-  });
+  // Hard timeout: an interactive gesture must never hang. If the model stalls
+  // we abort and let the caller's fallback produce a visible reply.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), MODEL_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch((process.env.OPENAI_BASE_URL || 'https://api.openai.com') + '/v1/chat/completions', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer ' + process.env.OPENAI_API_KEY,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODELS[openaiIdx],
+        // gpt-5 family are reasoning models: keep thinking short so answers
+        // come back fast enough for an interactive gesture loop
+        ...(OPENAI_MODELS[openaiIdx].startsWith('gpt-5') ? { reasoning_effort: 'low' } : {}),
+        max_completion_tokens: 2000,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: INTERPRET_SYSTEM },
+          { role: 'user', content: userContent },
+        ],
+      }),
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error(`model timeout after ${MODEL_TIMEOUT_MS}ms`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const body = (await res.text()).slice(0, 200);
     // unknown model on this key -> step down the chain and retry once per step
@@ -295,6 +321,98 @@ const USE_OPENAI = process.env.AI_BACKEND
   : !!process.env.OPENAI_API_KEY;
 function interpretGesture(payload) {
   return USE_OPENAI ? interpretWithOpenAI(payload) : interpretWithClaude(payload);
+}
+
+// Build a visible, deterministic reply for a gesture when the model gave us
+// nothing usable - whether it returned an empty result (.then) or failed /
+// timed out (.catch). A gesture must NEVER be a silent dead end. Returns an
+// assistant-reply object, or null when there was no gesture to answer.
+function synthFallback(pl, tag) {
+  pl = pl || {};
+  const marked = Array.isArray(pl.marked) ? pl.marked : [];
+  // POSTER circles: we know the schema, so synthesize a real options menu
+  // whose picks actually change the draft.
+  if (pl.screen === 'poster' && marked.length && !pl.speech) {
+    const m = marked.join(' ');
+    const curSecs = (pl.state && pl.state.poster && Array.isArray(pl.state.poster.sections)) ? pl.state.poster.sections : [];
+    const withSec = (idx, body) => ({ poster: { sections: curSecs.map((s, i) => i === idx ? { head: s.head, body } : { head: s.head, body: s.body }) } });
+    const secM = m.match(/poster-sec-(\d+)/);
+    let alts;
+    if (/accent|bg|color/i.test(m)) {
+      alts = [
+        { label: 'Cool blue', state: { poster: { accent: '#2E6FDB' } } },
+        { label: 'Warm orange', state: { poster: { accent: '#E8734C' } } },
+        { label: 'Deep green', state: { poster: { accent: '#2F8F5B' } } },
+      ];
+    } else if (/title/i.test(m)) {
+      alts = [
+        { label: 'Punchier title', state: { poster: { title: 'Don’t Miss It' } } },
+        { label: 'Add a subtitle', state: { poster: { subtitle: 'You’re invited' } } },
+      ];
+    } else if (secM && curSecs.length) {
+      const idx = +secM[1];
+      const head = (curSecs[idx] && curSecs[idx].head || '').toLowerCase();
+      if (/when|date|time/.test(head)) {
+        const body = String(curSecs[idx].body || '');
+        const tM = body.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+        if (tM) {
+          let h = +tM[1] % 12; if (/pm/i.test(tM[3])) h += 12;
+          const datePart = body.replace(/[·|-]?\s*\d{1,2}(?::\d{2})?\s*(AM|PM).*$/i, '').replace(/[·|,\s]+$/, '').trim();
+          const fmt = (hh) => { const ap = hh >= 12 ? 'PM' : 'AM'; let d = hh % 12; if (d === 0) d = 12; return d + ' ' + ap; };
+          const opt = (hh, lab) => ({ label: lab + ' — ' + fmt(hh), state: withSec(idx, (datePart ? datePart + ' · ' : '') + fmt(hh)) });
+          alts = [ opt(Math.max(8, h - 3), 'Earlier'), opt(Math.min(21, h + 2), 'Later'), opt(Math.min(22, h + 4), 'Even later') ];
+        } else {
+          alts = [
+            { label: 'Add a time', state: withSec(idx, body + ' · 6 PM') },
+            { label: 'Make it a range', state: withSec(idx, body + ' · 3–7 PM') },
+            { label: 'Move to next weekend', state: withSec(idx, 'Next Saturday · 3 PM') },
+          ];
+        }
+      } else if (/where|place|location/.test(head)) {
+        alts = [
+          { label: 'Change the venue', state: withSec(idx, 'Rooftop Terrace') },
+          { label: 'Add an address', state: withSec(idx, 'Main Hall, 100 Center St') },
+          { label: 'Make it online', state: withSec(idx, 'Online — link to follow') },
+        ];
+      } else {
+        alts = [
+          { label: 'Reword this', state: withSec(idx, 'Updated details') },
+          { label: 'Shorten it', state: withSec(idx, (curSecs[idx].body || '').split(/[,·—-]/)[0].trim() || 'Details') },
+          { label: 'Remove this line', state: { poster: { sections: curSecs.filter((_, i) => i !== idx) } } },
+        ];
+      }
+    } else {
+      alts = [
+        { label: 'Make this bolder', state: { poster: { accent: '#FF4D6D' } } },
+        { label: 'Soften the look', state: { poster: { accent: '#6C8EBF', bg: '#1A2230' } } },
+        { label: 'Brighten background', state: { poster: { bg: '#15203A' } } },
+      ];
+    }
+    console.log(`[${tag}] synth poster fallback menu for [${m}]`);
+    return { say: 'Did you mean:', confidence: 'normal', actions: [], edits: [], lines: [], ideas: [], alternatives: alts, state: undefined };
+  }
+  // ANY other screen: offer to act on the marked item, plus a plain explain,
+  // both targeting what the ink actually touched - never a silent nothing.
+  const gestured = marked.length || (pl.drawing && Array.isArray(pl.drawing.strokes) && pl.drawing.strokes.length);
+  if (!gestured) return null;
+  const subjCmd = marked[0] || (pl.drawing && pl.drawing.nearest && pl.drawing.nearest.cmd) || '';
+  const subjLbl = marked.length ? marked.slice(0, 2).join(', ')
+    : (pl.drawing && pl.drawing.nearest ? pl.drawing.nearest.label : 'that');
+  // If we can name a concrete target, offer real corrective actions on it;
+  // otherwise fall back to the honest "mark it again" nudge.
+  if (subjCmd && marked.length) {
+    console.log(`[${tag}] synth generic item fallback for "${subjCmd}"`);
+    // Only styles the client actually renders (emphasize / dim / strike), so
+    // every pick visibly changes the marked item - never a dead option.
+    return { say: 'Did you mean:', confidence: 'normal', actions: [], edits: [], lines: [], ideas: [],
+      alternatives: [
+        { label: 'Highlight ' + subjLbl, edits: [{ target: subjCmd, style: 'emphasize' }] },
+        { label: 'Cross it off', edits: [{ target: subjCmd, style: 'strike' }] },
+        { label: 'Dim it', edits: [{ target: subjCmd, style: 'dim' }] },
+      ], state: undefined };
+  }
+  console.log(`[${tag}] universal net on screen=${pl.screen}, subject="${subjLbl}"`);
+  return { say: 'Circle or tap ' + subjLbl + ' again, or say what to change', confidence: 'normal', actions: [], edits: [], lines: [], ideas: [], alternatives: [], state: undefined };
 }
 
 const PORT = process.env.PORT || 8080;
@@ -719,86 +837,17 @@ function onConnection(ws) {
       }
       interpretGesture(msg.payload || {})
         .then((r) => {
-          // SAFETY NET for poster circles: if the model returned nothing
-          // useful for a circle on a poster region, synthesize a working
-          // options menu server-side so the gesture is never a dead end.
           const pl = msg.payload || {};
+          // If the model returned nothing usable for a gesture, synthesize a
+          // visible reply (poster menu / item restyle / honest nudge) so the
+          // gesture is never a silent dead end.
           const noResult = (!r.alternatives || r.alternatives.length < 2) &&
-            (!r.actions || !r.actions.length) && (!r.edits || !r.edits.length) && !r.state;
-          if (pl.screen === 'poster' && Array.isArray(pl.marked) && pl.marked.length && !pl.speech && noResult) {
-            const m = pl.marked.join(' ');
-            const curSecs = (pl.state && pl.state.poster && Array.isArray(pl.state.poster.sections)) ? pl.state.poster.sections : [];
-            // rebuild the sections array with ONE section's body replaced
-            const withSec = (idx, body) => ({ poster: { sections: curSecs.map((s, i) => i === idx ? { head: s.head, body } : { head: s.head, body: s.body }) } });
-            const secM = m.match(/poster-sec-(\d+)/);
-            let alts;
-            if (/accent|bg|color/i.test(m)) {
-              alts = [
-                { label: 'Cool blue', state: { poster: { accent: '#2E6FDB' } } },
-                { label: 'Warm orange', state: { poster: { accent: '#E8734C' } } },
-                { label: 'Deep green', state: { poster: { accent: '#2F8F5B' } } },
-              ];
-            } else if (/title/i.test(m)) {
-              alts = [
-                { label: 'Punchier title', state: { poster: { title: 'Don’t Miss It' } } },
-                { label: 'Add a subtitle', state: { poster: { subtitle: 'You’re invited' } } },
-              ];
-            } else if (secM && curSecs.length) {
-              const idx = +secM[1];
-              const head = (curSecs[idx] && curSecs[idx].head || '').toLowerCase();
-              if (/when|date|time/.test(head)) {
-                const body = String(curSecs[idx].body || '');
-                const tM = body.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
-                if (tM) {
-                  let h = +tM[1] % 12; if (/pm/i.test(tM[3])) h += 12;
-                  const datePart = body.replace(/[·|-]?\s*\d{1,2}(?::\d{2})?\s*(AM|PM).*$/i, '').replace(/[·|,\s]+$/, '').trim();
-                  const fmt = (hh) => { const ap = hh >= 12 ? 'PM' : 'AM'; let d = hh % 12; if (d === 0) d = 12; return d + ' ' + ap; };
-                  const opt = (hh, lab) => ({ label: lab + ' — ' + fmt(hh), state: withSec(idx, (datePart ? datePart + ' · ' : '') + fmt(hh)) });
-                  alts = [ opt(Math.max(8, h - 3), 'Earlier'), opt(Math.min(21, h + 2), 'Later'), opt(Math.min(22, h + 4), 'Even later') ];
-                } else {
-                  alts = [
-                    { label: 'Add a time', state: withSec(idx, body + ' · 6 PM') },
-                    { label: 'Make it a range', state: withSec(idx, body + ' · 3–7 PM') },
-                    { label: 'Move to next weekend', state: withSec(idx, 'Next Saturday · 3 PM') },
-                  ];
-                }
-              } else if (/where|place|location/.test(head)) {
-                alts = [
-                  { label: 'Change the venue', state: withSec(idx, 'Rooftop Terrace') },
-                  { label: 'Add an address', state: withSec(idx, 'Main Hall, 100 Center St') },
-                  { label: 'Make it online', state: withSec(idx, 'Online — link to follow') },
-                ];
-              } else {
-                alts = [
-                  { label: 'Reword this', state: withSec(idx, 'Updated details') },
-                  { label: 'Shorten it', state: withSec(idx, (curSecs[idx].body || '').split(/[,·—-]/)[0].trim() || 'Details') },
-                  { label: 'Remove this line', state: { poster: { sections: curSecs.filter((_, i) => i !== idx) } } },
-                ];
-              }
-            } else {
-              alts = [
-                { label: 'Make this bolder', state: { poster: { accent: '#FF4D6D' } } },
-                { label: 'Soften the look', state: { poster: { accent: '#6C8EBF', bg: '#1A2230' } } },
-                { label: 'Brighten background', state: { poster: { bg: '#15203A' } } },
-              ];
-            }
-            console.log(`[${tag}] circle produced no model result - using deterministic fallback menu for [${m}]`);
-            r = { say: 'Did you mean:', confidence: 'normal', actions: [], edits: [], lines: [], ideas: [], alternatives: alts, state: undefined };
-          }
-          // UNIVERSAL NET: a gesture on ANY screen must never be a silent dead
-          // end. If nothing came back, give the user a visible, honest reply
-          // naming what they marked, so they know it registered and can retry.
-          const stillNothing = (!r.alternatives || r.alternatives.length < 2) &&
             (!r.actions || !r.actions.length) && (!r.edits || !r.edits.length) && !r.state &&
             !(r.lines && r.lines.length) && !(r.ideas && r.ideas.length) &&
             (!r.say || r.say.trim().length < 3 || /^did you mean/i.test(r.say));
-          const gestured = (Array.isArray(pl.marked) && pl.marked.length) ||
-            (pl.drawing && Array.isArray(pl.drawing.strokes) && pl.drawing.strokes.length);
-          if (stillNothing && gestured) {
-            const subj = (Array.isArray(pl.marked) && pl.marked.length) ? pl.marked.slice(0, 2).join(', ')
-              : (pl.drawing && pl.drawing.nearest ? pl.drawing.nearest.label : 'that');
-            console.log(`[${tag}] empty result on screen=${pl.screen} - universal net, subject="${subj}"`);
-            r = { say: 'Circle or tap ' + subj + ' again, or say what to change', confidence: 'normal', actions: [], edits: [], lines: [], ideas: [], alternatives: [], state: undefined };
+          if (noResult) {
+            const fb = synthFallback(pl, tag);
+            if (fb) r = fb;
           }
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
           console.log(`[${tag}] (${r.confidence}) "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
@@ -816,7 +865,15 @@ function onConnection(ws) {
           } else {
             console.log(`[${tag}] interpretation failed:`, err.message);
           }
-          sendTo('display', { type: 'assistant', ai: false, seq });
+          // A timeout or API error must NOT leave the gesture hanging. Give the
+          // user a deterministic, visible reply they can act on right away.
+          const fb = synthFallback(msg.payload || {}, tag);
+          if (fb) {
+            sendTo('display', { type: 'assistant', ai: true, seq, say: fb.say, confidence: fb.confidence, actions: fb.actions, edits: fb.edits, lines: fb.lines, ideas: fb.ideas, alternatives: fb.alternatives, state: fb.state });
+            sendTo('trackpad', { type: 'ack', action: fb.say, hit: (fb.edits && fb.edits.length > 0) });
+          } else {
+            sendTo('display', { type: 'assistant', ai: false, seq });
+          }
         });
       return;
     }

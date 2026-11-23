@@ -343,7 +343,7 @@
   });
 </script>
 
-<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 56</span>
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 57</span>
   <button id="audioBtn" title="glasses audio"
     style="background:none;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 10px;">&#128266; on</button>
 </div>
@@ -2365,6 +2365,19 @@
       return;
     }
     const content = el.dataset.content || '';
+    // POSTER fields: a text edit to the live poster MUST land in po, or the
+    // next render() (e.g. after a later time/color change) rebuilds the poster
+    // from stale state and silently drops this edit (the "birthday title
+    // disappeared after changing the time" bug).
+    let pm;
+    if (content === 'poster-title') { po.title = text.slice(0, 60); return; }
+    if (content === 'poster-subtitle') { po.subtitle = text.slice(0, 90); return; }
+    if (content === 'poster-footer') { po.footer = text.slice(0, 80); return; }
+    if (content === 'poster-note') { po.note = text.slice(0, 90); return; }
+    if ((pm = content.match(/^poster-sec-(\d+)-(head|body)$/)) && po.sections && po.sections[+pm[1]]) {
+      po.sections[+pm[1]][pm[2]] = text.slice(0, pm[2] === 'head' ? 40 : 110);
+      return;
+    }
     if (content === 'cook-step' && ck.steps[ck.step]) ck.steps[ck.step].text = text.slice(0, 120);
     else if (content === 'quiz-question' && qz.queue[qz.pos]) qz.queue[qz.pos].text = text.slice(0, 80);
     else if (content === 'nav-step' && nv.steps[nv.step]) nv.steps[nv.step].text = text.slice(0, 90);
