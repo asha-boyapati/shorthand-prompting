@@ -54,7 +54,7 @@ const sdkModule = require('@anthropic-ai/sdk');
 const Anthropic = sdkModule.Anthropic || sdkModule.default || sdkModule;
 const claude = new Anthropic();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const PROMPT_VERSION = 55; // bump when INTERPRET_SYSTEM changes
+const PROMPT_VERSION = 56; // bump when INTERPRET_SYSTEM changes
 let aiEnabled = true;
 
 const INTERPRET_SYSTEM = `You interpret freeform trackpad drawings for a wearable-AI-glasses research prototype.
@@ -139,7 +139,15 @@ AMBIGUITY: when the drawing has 2-3 genuinely different plausible readings, do N
 
 For GESTURES, always make your best guess at a concrete action or edit - never return empty actions AND empty edits unless the drawing touches nothing recognizable at all. (Handwritten queries are exempt: answering them in "say" is enough.)
 confidence "high" = the intent is unmistakable; your actions/edits run immediately and "say" states what you did.
-confidence "normal" = everything else. DEFAULT to returning 2-3 "alternatives" (see AMBIGUITY) so the user picks what they meant - that beats guessing wrong. Use a single yes/no proposal (actions/edits + a question in "say") only when there is exactly one sensible reading.`;
+confidence "normal" = everything else. DEFAULT to returning 2-3 "alternatives" (see AMBIGUITY) so the user picks what they meant - that beats guessing wrong. Use a single yes/no proposal (actions/edits + a question in "say") only when there is exactly one sensible reading.
+
+WORKED EXAMPLES (follow this quality and shape):
+- Circle around a changeable thing, no words -> offer the 2-3 edits the user most likely wants FIRST, each with its state/edit, "explain" last if at all. e.g. circle the time "3 PM" on a poster -> {"say":"Did you mean:","confidence":"normal","alternatives":[{"label":"Later - 6 PM","state":{"poster":{"sections":[...When body set to 6 PM, rest unchanged...]}}},{"label":"Earlier - 1 PM","state":{...}},{"label":"Make it a range","state":{...}}]}
+- Circle + a spoken/written word -> APPLY it directly, high confidence. e.g. circle the accent chip + "make it blue" -> {"say":"Made it blue","confidence":"high","state":{"poster":{"accent":"#2E6FDB"}}}
+- A written word alone that is a change ("veg","bolder","cheaper") -> apply it now. "veg" on a recipe -> swap non-veg ingredients via state, high confidence.
+- A written word that names new content ("who","rsvp","bday","pic") -> add it (a section, a title tweak, or emoji art), high confidence - never ask "do you want to change anything".
+- GEAR OPTIONS TO THE USER'S GOAL: read "task" and "history" and offer what someone doing THIS would want next. On a poster they want it to look good and read clearly: better wording, a stronger time/venue, a fitting color, a relevant detail - not generic or meta options. Never offer an option that changes nothing, and never offer "explain X" as the only option for something editable.
+- When unsure of the exact target, still act on the nearest marked thing - do NOT return empty. Empty actions AND empty edits AND empty alternatives AND empty state, for a gesture, is always WRONG.`;
 
 function parseInterpretation(raw) {
   const text = String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -776,6 +784,21 @@ function onConnection(ws) {
             }
             console.log(`[${tag}] circle produced no model result - using deterministic fallback menu for [${m}]`);
             r = { say: 'Did you mean:', confidence: 'normal', actions: [], edits: [], lines: [], ideas: [], alternatives: alts, state: undefined };
+          }
+          // UNIVERSAL NET: a gesture on ANY screen must never be a silent dead
+          // end. If nothing came back, give the user a visible, honest reply
+          // naming what they marked, so they know it registered and can retry.
+          const stillNothing = (!r.alternatives || r.alternatives.length < 2) &&
+            (!r.actions || !r.actions.length) && (!r.edits || !r.edits.length) && !r.state &&
+            !(r.lines && r.lines.length) && !(r.ideas && r.ideas.length) &&
+            (!r.say || r.say.trim().length < 3 || /^did you mean/i.test(r.say));
+          const gestured = (Array.isArray(pl.marked) && pl.marked.length) ||
+            (pl.drawing && Array.isArray(pl.drawing.strokes) && pl.drawing.strokes.length);
+          if (stillNothing && gestured) {
+            const subj = (Array.isArray(pl.marked) && pl.marked.length) ? pl.marked.slice(0, 2).join(', ')
+              : (pl.drawing && pl.drawing.nearest ? pl.drawing.nearest.label : 'that');
+            console.log(`[${tag}] empty result on screen=${pl.screen} - universal net, subject="${subj}"`);
+            r = { say: 'Circle or tap ' + subj + ' again, or say what to change', confidence: 'normal', actions: [], edits: [], lines: [], ideas: [], alternatives: [], state: undefined };
           }
           const editDesc = r.edits.map(e => e.target + (e.text ? '→"' + e.text.slice(0, 40) + '"' : '') + (e.style ? ':' + e.style : '')).join(', ');
           console.log(`[${tag}] (${r.confidence}) "${r.say}" actions=[${r.actions.join(', ')}] edits=[${editDesc}]`);
