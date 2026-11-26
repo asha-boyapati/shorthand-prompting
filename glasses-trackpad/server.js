@@ -455,6 +455,28 @@ const handleRequest = (req, res) => {
     return;
   }
 
+  // vendored static assets (MediaPipe hand-gesture model + wasm), served
+  // locally so the camera gesture mode works fully offline on the LAN.
+  if (url.startsWith('/vendor/')) {
+    const rel = decodeURIComponent(url.slice(1)); // strip leading '/'
+    const full = path.normalize(path.join(PUBLIC_DIR, rel));
+    // never let a crafted path escape PUBLIC_DIR
+    if (!full.startsWith(path.join(PUBLIC_DIR, 'vendor') + path.sep)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('forbidden'); return;
+    }
+    const types = {
+      '.mjs': 'text/javascript', '.js': 'text/javascript', '.wasm': 'application/wasm',
+      '.task': 'application/octet-stream', '.json': 'application/json', '.bin': 'application/octet-stream',
+    };
+    const ct = types[path.extname(full)] || 'application/octet-stream';
+    fs.readFile(full, (err, data) => {
+      if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('missing'); return; }
+      res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'max-age=86400' });
+      res.end(data);
+    });
+    return;
+  }
+
   const file = ROUTES[url];
   if (!file) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });

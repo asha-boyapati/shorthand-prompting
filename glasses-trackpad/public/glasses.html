@@ -343,7 +343,7 @@
   });
 </script>
 
-<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 57</span>
+<div id="statusbar"><span class="dot"></span><span id="statustext">waiting for trackpad…</span><span style="color:var(--border);font-size:11px;">build 58</span>
   <button id="audioBtn" title="glasses audio"
     style="background:none;border:1px solid var(--border);border-radius:12px;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 10px;">&#128266; on</button>
 </div>
@@ -1271,6 +1271,7 @@
         break;
       case 'tap': doTap(); break;
       case 'swipe': doSwipe(msg.dir); break;
+      case 'handgesture': doHandGesture(msg.name); break;
       case 'scroll': doScroll(+msg.dy || 0); break;
       case 'draw': doDraw(msg); break;
       case 'photo': doPhoto(msg); break;
@@ -1331,6 +1332,46 @@
     } else {
       showToast('nothing selectable');
       sendAck('nothing selectable', false);
+    }
+  }
+
+  // Camera hand gestures from the companion device map to the SAME selection
+  // logic as the cursor: finger counts pick options, thumbs up/down
+  // confirm/dismiss. Self-contained so it works on any screen.
+  function doHandGesture(name) {
+    const n = name === 'one' ? 1 : name === 'two' ? 2 : name === 'three' ? 3 : 0;
+    if (name === 'thumbs_up') {
+      flash.className = 'right show'; setTimeout(() => { flash.className = ''; }, 450);
+      if (proposal && proposal.options) { chooseAlt(0); return; }
+      if (proposal) {                       // confirm a pending yes/no suggestion
+        const p = proposal; proposal = null; clearTimeout(proposalTimer); hideChooser();
+        applyAssistant(p.actions || [], p.edits || [], p.state, p.say);
+        showBubble('✓ done'); sendAck('Confirmed — done', true); return;
+      }
+      const first = card.querySelector('[data-action]');     // else activate the top item
+      if (first && run(first.dataset.cmd)) { showToast('✓ ' + first.dataset.action); sendAck(first.dataset.action, true); }
+      else { showToast('👍 nothing to confirm'); sendAck('nothing to confirm', false); }
+      return;
+    }
+    if (name === 'thumbs_down') {
+      flash.className = 'left show'; setTimeout(() => { flash.className = ''; }, 450);
+      if (proposal) { dismissAlternatives(); return; }
+      doShake(); // never mind / back to launcher
+      return;
+    }
+    if (n) {
+      if (proposal && proposal.options) {
+        if (proposal.options[n - 1]) chooseAlt(n - 1);
+        else { showToast('no option ' + n); sendAck('no option ' + n, false); }
+        return;
+      }
+      const items = [...card.querySelectorAll('[data-action]')];
+      const el = items[n - 1];
+      if (el && run(el.dataset.cmd)) {
+        el.classList.add('circled'); setTimeout(() => { if (el.isConnected) el.classList.remove('circled'); }, 700);
+        showToast('✓ ' + el.dataset.action); sendAck(el.dataset.action, true);
+      } else { showToast('no item ' + n); sendAck('no item ' + n, false); }
+      return;
     }
   }
 

@@ -137,6 +137,44 @@
     text-overflow: ellipsis;
   }
   #banner.show { transform: translateX(-50%) translateY(0); }
+
+  /* --- camera hand-gesture mode --- */
+  #cam {
+    position: fixed; inset: 0; z-index: 40;
+    background: #05080d; display: none;
+    flex-direction: column; align-items: center;
+  }
+  #cam.show { display: flex; }
+  #camwrap { position: relative; width: 100%; flex: 1; overflow: hidden; }
+  #camvid, #camoverlay {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; transform: scaleX(-1); /* mirror: natural selfie view */
+  }
+  #camreadout {
+    position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+    font-size: 64px; min-height: 76px; text-align: center; z-index: 2;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.8);
+  }
+  #camstatus {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    background: rgba(5,8,13,0.8); border: 1px solid var(--glow); color: var(--glow);
+    padding: 7px 16px; border-radius: 20px; font-size: 13px; z-index: 2;
+    max-width: 92vw; text-align: center;
+  }
+  #camlegend {
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+    display: grid; grid-template-columns: auto 1fr; gap: 4px 14px;
+    font-size: 14px; color: #9fb3c3; background: #0b1119; width: 100%;
+    box-sizing: border-box; border-top: 1px solid rgba(77,210,255,0.2);
+  }
+  #camlegend b { color: var(--glow); font-weight: 600; }
+  #camclose {
+    position: absolute; top: 12px; right: 14px; z-index: 3;
+    width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(5,8,13,0.85); border: 1px solid var(--glow); color: var(--glow);
+    font-size: 20px; line-height: 38px; text-align: center;
+  }
+  #cam.flash-ok #camwrap { box-shadow: inset 0 0 0 6px rgba(77,255,160,0.9); }
 </style>
 </head>
 <body>
@@ -172,10 +210,29 @@
 <div id="modebar">
   <div class="modebtn active" id="cursorBtn">&#9995; Interact</div>
   <div class="modebtn" id="drawBtn">&#9998; Steer</div>
+  <div class="modebtn" id="gestureBtn">&#128075;</div>
   <div class="modebtn" id="photoBtn">&#128247;</div>
   <div class="modebtn" id="clearbtn">Clear</div>
 </div>
 <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none">
+
+<!-- camera hand-gesture mode: point the phone at your hand, gesture to pick -->
+<div id="cam">
+  <div id="camwrap">
+    <video id="camvid" playsinline muted autoplay></video>
+    <canvas id="camoverlay"></canvas>
+    <div id="camclose">&times;</div>
+    <div id="camstatus">starting camera…</div>
+    <div id="camreadout"></div>
+  </div>
+  <div id="camlegend">
+    <b>&#9757;&#65039; 1 finger</b><span>pick option 1</span>
+    <b>&#9996;&#65039; 2 fingers</b><span>pick option 2</span>
+    <b>3 fingers</b><span>pick option 3</span>
+    <b>&#128077; thumbs up</b><span>yes / confirm</span>
+    <b>&#128078; thumbs down</b><span>no / never mind</span>
+  </div>
+</div>
 
 <div id="banner"></div>
 
@@ -655,6 +712,126 @@
 
   pad.addEventListener('pointerup', endPointer);
   pad.addEventListener('pointercancel', endPointer);
+
+  // --- camera hand-gesture mode (MediaPipe hand landmarks, vendored local) ---
+  const gestureBtn = document.getElementById('gestureBtn');
+  const cam = document.getElementById('cam');
+  const camVid = document.getElementById('camvid');
+  const camOverlay = document.getElementById('camoverlay');
+  const camStatus = document.getElementById('camstatus');
+  const camReadout = document.getElementById('camreadout');
+  const camClose = document.getElementById('camclose');
+  const octx = camOverlay.getContext('2d');
+  const ICONS = { one: '☝️', two: '✌️', three: '3️⃣', thumbs_up: '👍', thumbs_down: '👎' };
+  let landmarker = null, camStream = null, rafId = 0, camActive = false, mpLoading = false;
+
+  async function ensureLandmarker() {
+    if (landmarker) return landmarker;
+    if (mpLoading) return null;
+    mpLoading = true;
+    camStatus.textContent = 'loading gesture model…';
+    try {
+      const vision = await import('/vendor/mediapipe/vision_bundle.mjs');
+      const fileset = await vision.FilesetResolver.forVisionTasks('/vendor/mediapipe/wasm');
+      const opts = (delegate) => ({ baseOptions: { modelAssetPath: '/vendor/mediapipe/hand_landmarker.task', delegate }, numHands: 1, runningMode: 'VIDEO' });
+      landmarker = await vision.HandLandmarker.createFromOptions(fileset, opts('GPU'))
+        .catch(() => vision.HandLandmarker.createFromOptions(fileset, opts('CPU')));
+    } catch (e) {
+      camStatus.textContent = 'could not load gesture model';
+      landmarker = null;
+    }
+    mpLoading = false;
+    return landmarker;
+  }
+
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  // classify 21 normalized hand landmarks -> gesture name (or null). Uses
+  // distance-from-wrist so finger "extended" survives a tilted hand; thumb
+  // up/down from vertical position. Mirror-invariant.
+  function classify(lm) {
+    const wrist = lm[0];
+    const tip = [8, 12, 16, 20], pip = [6, 10, 14, 18];
+    const ext = tip.map((t, i) => dist(lm[t], wrist) > dist(lm[pip[i]], wrist) * 1.08);
+    const nExt = ext.filter(Boolean).length;
+    const thumbTip = lm[4];
+    const thumbExt = dist(thumbTip, lm[5]) > dist(lm[3], lm[5]) * 1.25;
+    const thumbUp = thumbTip.y < wrist.y - 0.08 && thumbTip.y < lm[5].y;
+    const thumbDown = thumbTip.y > wrist.y + 0.04 && thumbTip.y > lm[5].y;
+    if (nExt === 0 && thumbExt && thumbUp) return 'thumbs_up';
+    if (nExt === 0 && thumbExt && thumbDown) return 'thumbs_down';
+    if (nExt === 1 && ext[0]) return 'one';
+    if (nExt === 2 && ext[0] && ext[1]) return 'two';
+    if (nExt === 3 && ext[0] && ext[1] && ext[2]) return 'three';
+    return null;
+  }
+
+  // debounce: a gesture must hold ~6 frames before firing once; the hand must
+  // relax (null) before the SAME gesture can fire again, so a held hand sends once
+  let stable = null, stableCount = 0, lastFired = null, cooldownUntil = 0;
+  function onGesture(g) {
+    const now = performance.now();
+    if (g === stable) stableCount++; else { stable = g; stableCount = 1; }
+    camReadout.textContent = g ? (ICONS[g] || '') : '';
+    if (!g) { lastFired = null; return; }
+    if (stableCount === 6 && now >= cooldownUntil && g !== lastFired) {
+      send({ type: 'handgesture', name: g });
+      vibrate([25, 35, 25]);
+      cam.classList.add('flash-ok');
+      setTimeout(() => cam.classList.remove('flash-ok'), 260);
+      showBanner((ICONS[g] || '') + ' ' + g.replace('_', ' '));
+      lastFired = g;
+      cooldownUntil = now + 1100;
+    }
+  }
+
+  function drawLandmarks(lm) {
+    const w = camOverlay.width, h = camOverlay.height;
+    octx.clearRect(0, 0, w, h);
+    if (!lm) return;
+    octx.fillStyle = 'rgba(77,210,255,0.95)';
+    for (const p of lm) { octx.beginPath(); octx.arc(p.x * w, p.y * h, 5, 0, 7); octx.fill(); }
+  }
+
+  function loop() {
+    if (!camActive) return;
+    if (landmarker && camVid.readyState >= 2) {
+      let res = null;
+      try { res = landmarker.detectForVideo(camVid, performance.now()); } catch {}
+      const lm = res && res.landmarks && res.landmarks[0];
+      if (camOverlay.width !== camVid.videoWidth && camVid.videoWidth) { camOverlay.width = camVid.videoWidth; camOverlay.height = camVid.videoHeight; }
+      drawLandmarks(lm);
+      onGesture(lm ? classify(lm) : null);
+      if (!mpLoading) camStatus.textContent = lm ? 'show a gesture' : 'point the camera at your hand';
+    }
+    rafId = requestAnimationFrame(loop);
+  }
+
+  async function startCam() {
+    if (camActive) return;
+    cam.classList.add('show');
+    camActive = true;
+    camStatus.textContent = 'starting camera…';
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false });
+      camVid.srcObject = camStream;
+      await camVid.play().catch(() => {});
+    } catch (e) {
+      camStatus.textContent = 'camera blocked — allow access, then reopen';
+      return;
+    }
+    await ensureLandmarker();
+    stable = null; stableCount = 0; lastFired = null; cooldownUntil = 0;
+    loop();
+  }
+  function stopCam() {
+    camActive = false;
+    cancelAnimationFrame(rafId);
+    if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+    camVid.srcObject = null;
+    cam.classList.remove('show');
+  }
+  if (gestureBtn) gestureBtn.addEventListener('click', startCam);
+  if (camClose) camClose.addEventListener('click', stopCam);
 
   updateDbg();
   connect();
